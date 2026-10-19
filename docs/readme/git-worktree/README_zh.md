@@ -4,7 +4,7 @@
 
 </div>
 
-[← 返回全部 Skills](../../../README_zh.md)
+[← 返回全部 Skills](../../../README.md)
 
 # Git Worktree Skills
 

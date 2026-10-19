@@ -1,9 +1,3 @@
-<div align="center">
-
-**English** · [简体中文](README_zh.md)
-
-</div>
-
 # Agent Skills
 
 A personal collection of Agent Skills: reusable instructions that give an agent a
@@ -21,7 +15,7 @@ Run parallel development sessions in isolated Git worktrees.
 | [create-git-worktree](skills/git-worktree/create-git-worktree/SKILL.md) | Creates a worktree from a stated requirement and moves the session into it. |
 | [destroy-git-worktree](skills/git-worktree/destroy-git-worktree/SKILL.md) | Cleans the environment, checks for work that would be lost, and returns the session to the primary worktree. |
 
-[Read the git-worktree documentation](docs/readme/git-worktree/README.md) · [简体中文](docs/readme/git-worktree/README_zh.md)
+[Read the git-worktree documentation](docs/readme/git-worktree/README.md)
 
 ## Using these skills
 
