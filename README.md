@@ -28,25 +28,6 @@ finished.
    no work would be lost, returns to the primary worktree, removes the worktree, and
    deletes the branch when safe.
 
-## Repository layout
-
-```text
-.
-├── README.md
-├── README_zh.md
-└── skills/
-    ├── setup-git-worktree/
-    │   └── SKILL.md
-    ├── create-git-worktree/
-    │   └── SKILL.md
-    └── destroy-git-worktree/
-        └── SKILL.md
-```
-
-Each skill is a directory with a `SKILL.md` containing YAML frontmatter and Markdown
-instructions. No project-specific scripts are stored in this repository; they are
-generated inside the target project by `setup-git-worktree`.
-
 ## Requirements
 
 - Git 2.17 or newer.

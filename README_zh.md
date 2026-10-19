@@ -19,23 +19,6 @@
 3. **开发。** 会话后续的命令默认在 worktree 中执行，文件操作使用 worktree 下的绝对路径。
 4. **销毁 worktree。** `destroy-git-worktree` 清理环境，确认没有会丢失的工作，返回主 worktree，删除 worktree，并在安全时删除 branch。
 
-## 目录结构
-
-```text
-.
-├── README.md
-├── README_zh.md
-└── skills/
-    ├── setup-git-worktree/
-    │   └── SKILL.md
-    ├── create-git-worktree/
-    │   └── SKILL.md
-    └── destroy-git-worktree/
-        └── SKILL.md
-```
-
-每个 skill 是一个目录，里面有一个包含 YAML frontmatter 和 Markdown 指令的 `SKILL.md`。本仓库不保存项目专属脚本；这些脚本由 `setup-git-worktree` 在目标项目中生成。
-
 ## 环境要求
 
 - Git 2.17 或更新版本。
