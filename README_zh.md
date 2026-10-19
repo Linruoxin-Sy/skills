@@ -1,3 +1,9 @@
+<div align="center">
+
+[English](README.md) · **简体中文**
+
+</div>
+
 # Git Worktree Skills
 
 三个 Agent Skill，用于在隔离的 Git worktree 中并行开发，避免不同会话的文件、分支和本地服务互相干扰。

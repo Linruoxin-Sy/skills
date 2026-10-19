@@ -1,3 +1,9 @@
+<div align="center">
+
+**English** · [简体中文](README_zh.md)
+
+</div>
+
 # Git Worktree Skills
 
 Three agent skills for running parallel development work in isolated Git worktrees,
