@@ -12,9 +12,9 @@
 
 | Skill | 作用 |
 | --- | --- |
-| [setup-git-worktree](skills/setup-git-worktree/SKILL.md) | 初始化仓库的 worktree 工作流。询问 worktree 存放位置、工作流文档位置和脚本位置；创建 `AGENTS.md`、工作流文档、`.worktreeinclude` 以及项目专属的 init/teardown 脚本；区分共享资源和隔离资源；只提交 setup 自己产生的文件。 |
-| [create-git-worktree](skills/create-git-worktree/SKILL.md) | 根据用户给出的具体需求生成一个 canonical 名称，branch 与 worktree 叶目录同名；创建 worktree、复制 `.worktreeinclude` 中的文件、执行 init、记录状态，并把会话切换到 worktree。 |
-| [destroy-git-worktree](skills/destroy-git-worktree/SKILL.md) | 定位当前会话的 worktree，执行 teardown，检查未提交文件、未推送提交、合并状态、submodule 和 lock，然后返回主 worktree、删除 worktree，并在安全时删除 branch、清理状态。 |
+| [setup-git-worktree](skills/git-worktree/setup-git-worktree/SKILL.md) | 初始化仓库的 worktree 工作流。询问 worktree 存放位置、工作流文档位置和脚本位置；创建 `AGENTS.md`、工作流文档、`.worktreeinclude` 以及项目专属的 init/teardown 脚本；区分共享资源和隔离资源；只提交 setup 自己产生的文件。 |
+| [create-git-worktree](skills/git-worktree/create-git-worktree/SKILL.md) | 根据用户给出的具体需求生成一个 canonical 名称，branch 与 worktree 叶目录同名；创建 worktree、复制 `.worktreeinclude` 中的文件、执行 init、记录状态，并把会话切换到 worktree。 |
+| [destroy-git-worktree](skills/git-worktree/destroy-git-worktree/SKILL.md) | 定位当前会话的 worktree，执行 teardown，检查未提交文件、未推送提交、合并状态、submodule 和 lock，然后返回主 worktree、删除 worktree，并在安全时删除 branch、清理状态。 |
 
 ## 工作流
 
@@ -45,7 +45,7 @@
 
 ## 安装
 
-把 `skills/` 下的三个目录放到 agent 加载 skill 的目录，或让 skill source 指向本仓库。三个 skill 都是 model-invoked，由 description 决定何时触发。
+把 `skills/git-worktree/` 下的三个目录放到 agent 加载 skill 的目录，或让 skill source 指向本仓库。三个 skill 都是 model-invoked，由 description 决定何时触发。
 
 ## 范围说明
 

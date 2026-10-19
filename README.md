@@ -13,9 +13,9 @@ without letting one session's files, branches, or local services collide with an
 
 | Skill | What it does |
 | --- | --- |
-| [setup-git-worktree](skills/setup-git-worktree/SKILL.md) | Initializes a repository's worktree workflow. Asks where worktrees, the workflow doc, and scripts live; creates `AGENTS.md`, the workflow doc, `.worktreeinclude`, and project-specific init/teardown scripts; classifies shared versus isolated resources; commits only the setup files. |
-| [create-git-worktree](skills/create-git-worktree/SKILL.md) | Takes a concrete requirement, derives one canonical name for both the branch and the worktree leaf, creates the worktree, copies included local files, runs the init script, records state, and moves the session into the worktree. |
-| [destroy-git-worktree](skills/destroy-git-worktree/SKILL.md) | Locates the session's worktree, runs teardown, checks dirty files, unpushed commits, merge state, submodules, and locks, then returns to the primary worktree, removes the worktree, deletes the branch when safe, and clears state. |
+| [setup-git-worktree](skills/git-worktree/setup-git-worktree/SKILL.md) | Initializes a repository's worktree workflow. Asks where worktrees, the workflow doc, and scripts live; creates `AGENTS.md`, the workflow doc, `.worktreeinclude`, and project-specific init/teardown scripts; classifies shared versus isolated resources; commits only the setup files. |
+| [create-git-worktree](skills/git-worktree/create-git-worktree/SKILL.md) | Takes a concrete requirement, derives one canonical name for both the branch and the worktree leaf, creates the worktree, copies included local files, runs the init script, records state, and moves the session into the worktree. |
+| [destroy-git-worktree](skills/git-worktree/destroy-git-worktree/SKILL.md) | Locates the session's worktree, runs teardown, checks dirty files, unpushed commits, merge state, submodules, and locks, then returns to the primary worktree, removes the worktree, deletes the branch when safe, and clears state. |
 
 ## Workflow
 
@@ -70,8 +70,8 @@ finished.
 
 ## Installation
 
-Place the three directories under `skills/` where your agent loads skills from, or point
-your skill source at this repository. The skills are model-invoked: their descriptions
+Place the three directories under `skills/git-worktree/` where your agent loads skills
+from, or point your skill source at this repository. The skills are model-invoked: their descriptions
 tell the agent when to run them.
 
 ## Scope
