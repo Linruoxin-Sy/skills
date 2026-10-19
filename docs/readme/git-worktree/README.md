@@ -72,19 +72,19 @@ finished.
 
 ## Installation
 
-Install the `git-worktree` set from the repository root with the
+Install the `git-worktree` set directly from GitHub with the
 [Skills CLI](https://npmx.dev/package/skills):
 
 ```bash
-npx skills add ./skills/git-worktree --list
-npx skills add ./skills/git-worktree
+npx skills add https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-worktree --list
+npx skills add https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-worktree
 ```
 
 Add `-g` to install at the user level instead of the current project. Install only
 selected skills, or target a specific agent:
 
 ```bash
-npx skills add ./skills/git-worktree \
+npx skills add https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-worktree \
   --skill setup-git-worktree \
   --skill create-git-worktree \
   --skill destroy-git-worktree \
@@ -94,7 +94,7 @@ npx skills add ./skills/git-worktree \
 Try a skill without installing it:
 
 ```bash
-npx skills use ./skills/git-worktree \
+npx skills use https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-worktree \
   --skill setup-git-worktree \
   --agent claude-code
 ```

@@ -3,6 +3,8 @@
 A personal collection of Agent Skills: reusable instructions that give an agent a
 repeatable workflow for a specific kind of task.
 
+[github.com/Linruoxin-Sy/skills](https://github.com/Linruoxin-Sy/skills)
+
 ## Skill sets
 
 ### git-worktree
@@ -22,18 +24,18 @@ Run parallel development sessions in isolated Git worktrees.
 This repository is a skills source for the [Skills CLI](https://npmx.dev/package/skills)
 (`npx skills`), which supports Claude Code, Codex, Cursor, OpenCode, and other agents.
 
-From the repository root, list and install every skill in the collection:
+Install every skill in the collection directly from GitHub:
 
 ```bash
-npx skills add ./ --list
-npx skills add ./
+npx skills add Linruoxin-Sy/skills --list
+npx skills add Linruoxin-Sy/skills
 ```
 
 Add `-g` to install at the user level instead of the current project. Target a specific
 agent with `-a`:
 
 ```bash
-npx skills add ./ -g -a claude-code
+npx skills add Linruoxin-Sy/skills -g -a claude-code
 ```
 
 Replace `claude-code` with your agent's identifier. The CLI requires Node.js 22.20 or

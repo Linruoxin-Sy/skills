@@ -47,17 +47,17 @@
 
 ## 安装
 
-在仓库根目录使用 [Skills CLI](https://npmx.dev/package/skills) 安装 `git-worktree` 这一组 skill：
+直接从 GitHub 使用 [Skills CLI](https://npmx.dev/package/skills) 安装 `git-worktree` 这一组 skill：
 
 ```bash
-npx skills add ./skills/git-worktree --list
-npx skills add ./skills/git-worktree
+npx skills add https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-worktree --list
+npx skills add https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-worktree
 ```
 
 加 `-g` 安装到用户级，而不是当前项目。只安装部分 skill，或指定 agent：
 
 ```bash
-npx skills add ./skills/git-worktree \
+npx skills add https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-worktree \
   --skill setup-git-worktree \
   --skill create-git-worktree \
   --skill destroy-git-worktree \
@@ -67,7 +67,7 @@ npx skills add ./skills/git-worktree \
 不安装、直接试用某个 skill：
 
 ```bash
-npx skills use ./skills/git-worktree \
+npx skills use https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-worktree \
   --skill setup-git-worktree \
   --agent claude-code
 ```
