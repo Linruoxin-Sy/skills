@@ -19,44 +19,25 @@ Run parallel development sessions in isolated Git worktrees.
 
 ## Using these skills
 
-This repository is installable with the [Skills CLI](https://npmx.dev/package/skills)
+This repository is a skills source for the [Skills CLI](https://npmx.dev/package/skills)
 (`npx skills`), which supports Claude Code, Codex, Cursor, OpenCode, and other agents.
 
-List the skills in the `git-worktree` set:
+From the repository root, list and install every skill in the collection:
 
 ```bash
-npx skills add ./skills/git-worktree --list
+npx skills add ./ --list
+npx skills add ./
 ```
 
-Install the set into the current project. Add `-g` to install at the user level instead:
+Add `-g` to install at the user level instead of the current project. Target a specific
+agent with `-a`:
 
 ```bash
-npx skills add ./skills/git-worktree
-```
-
-Install selected skills, or target a specific agent:
-
-```bash
-npx skills add ./skills/git-worktree \
-  --skill setup-git-worktree \
-  --skill create-git-worktree \
-  --skill destroy-git-worktree \
-  -a claude-code
-```
-
-Try a skill without installing it:
-
-```bash
-npx skills use ./skills/git-worktree \
-  --skill setup-git-worktree \
-  --agent claude-code
+npx skills add ./ -g -a claude-code
 ```
 
 Replace `claude-code` with your agent's identifier. The CLI requires Node.js 22.20 or
 newer. The skills are model-invoked; their descriptions decide when to run them.
 
-If you prefer not to use the CLI, each skill is a directory containing a `SKILL.md`;
-place the directory where your agent loads skills from.
-
-Each skill set keeps its own requirements and installation notes in its README under
-`docs/readme/`.
+To install only one skill set or a specific skill, use that set's README. Each set keeps
+its own requirements and installation notes under `docs/readme/`.

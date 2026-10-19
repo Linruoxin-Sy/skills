@@ -72,9 +72,36 @@ finished.
 
 ## Installation
 
-Place the three directories under `skills/git-worktree/` at the repository root where
-your agent loads skills from, or point your skill source at this repository. The skills are model-invoked: their descriptions
-tell the agent when to run them.
+Install the `git-worktree` set from the repository root with the
+[Skills CLI](https://npmx.dev/package/skills):
+
+```bash
+npx skills add ./skills/git-worktree --list
+npx skills add ./skills/git-worktree
+```
+
+Add `-g` to install at the user level instead of the current project. Install only
+selected skills, or target a specific agent:
+
+```bash
+npx skills add ./skills/git-worktree \
+  --skill setup-git-worktree \
+  --skill create-git-worktree \
+  --skill destroy-git-worktree \
+  -a claude-code
+```
+
+Try a skill without installing it:
+
+```bash
+npx skills use ./skills/git-worktree \
+  --skill setup-git-worktree \
+  --agent claude-code
+```
+
+Replace `claude-code` with your agent's identifier. The CLI requires Node.js 22.20 or
+newer. The three skills are model-invoked: their descriptions tell the agent when to run
+them.
 
 ## Scope
 

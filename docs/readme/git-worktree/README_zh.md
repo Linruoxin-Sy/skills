@@ -47,7 +47,32 @@
 
 ## 安装
 
-把仓库根目录下 `skills/git-worktree/` 里的三个目录放到 agent 加载 skill 的目录，或让 skill source 指向本仓库。三个 skill 都是 model-invoked，由 description 决定何时触发。
+在仓库根目录使用 [Skills CLI](https://npmx.dev/package/skills) 安装 `git-worktree` 这一组 skill：
+
+```bash
+npx skills add ./skills/git-worktree --list
+npx skills add ./skills/git-worktree
+```
+
+加 `-g` 安装到用户级，而不是当前项目。只安装部分 skill，或指定 agent：
+
+```bash
+npx skills add ./skills/git-worktree \
+  --skill setup-git-worktree \
+  --skill create-git-worktree \
+  --skill destroy-git-worktree \
+  -a claude-code
+```
+
+不安装、直接试用某个 skill：
+
+```bash
+npx skills use ./skills/git-worktree \
+  --skill setup-git-worktree \
+  --agent claude-code
+```
+
+把 `claude-code` 换成你的 agent 标识。CLI 需要 Node.js 22.20 或更新版本。三个 skill 都是 model-invoked，由 description 决定何时触发。
 
 ## 范围说明
 
