@@ -476,7 +476,7 @@ paths for every file tool.
 End the answer with:
 
 ```text
-本次会话已切换到 worktree 环境。
+This session has switched to the worktree environment.  [in the user's language]
 Worktree: <path>
 Branch: <actual branch>
 Base: <base_ref> (<base_commit short>)
@@ -485,6 +485,12 @@ Isolation: <ports / database / containers / other resources>
 Land: use the merge-git-worktree skill when the work is ready.
 Return: use the destroy-git-worktree skill when finished.
 ```
+
+The banner's first line must state that the session has switched to the worktree
+environment. The English wording above is canonical; the bracketed marker beside it means
+the line is emitted in the language the user is actually writing in, not always in
+English. Keep the banner at the end and keep its meaning stable, so users and recovery
+paths still recognize it in any language.
 
 Done when the state file exists and the session cwd is the worktree.
 
