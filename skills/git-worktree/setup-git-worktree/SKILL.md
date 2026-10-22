@@ -324,12 +324,14 @@ two functions and mark the project-specific section with a comment.
 Scripts must satisfy this contract:
 
 ```text
-<runner> <script> --repo <primary> --worktree <path> --name <name> --json [--config <path>] [--purge] [--check] [--dry-run]
+<runner> <script> --repo <primary> --worktree <path> --name <name> --json [--config <path>] [--copied-manifest <path>] [--purge] [--check] [--dry-run]
 ```
 
 - Run from any directory; resolve all paths from the arguments and `--config`.
 - If `--config` is omitted, default to the config path recorded in the document, or to
   `docs/worktree.config.json`. For schema 1, fall back to the document block.
+- `--copied-manifest` points to a JSON file listing files copied by `.worktreeinclude`.
+  Treat every listed relative path as read-only: never create, overwrite, or delete it.
 - Never prompt. If input is missing, exit with a clear error.
 - Be idempotent. A second run must succeed without duplicating resources.
 - Print one JSON object on the last stdout line:
@@ -361,14 +363,22 @@ Init responsibilities:
   another project env file.
 - Treat files copied by `.worktreeinclude` as inputs. Never overwrite a copied file; if
   `env.file` is also matched by `.worktreeinclude`, stop and report the conflict.
+- Read `--copied-manifest` when provided, and treat every listed path as read-only. If the
+  manifest is absent, compute the copied set from `.worktreeinclude` and the repository's
+  ignore rules before writing anything.
 - Do not copy `.worktreeinclude`; the create skill does that before init.
 
 Teardown responsibilities:
 
-- Stop processes and containers started for this worktree.
+- Stop processes and containers started for this worktree. Before stopping a listener,
+  resolve its PID and command line; only stop a process whose command line references the
+  worktree. Terminate the process tree, not just the shell
+  (`taskkill /PID <pid> /T /F` on Windows, `kill -- -<pgid>` or the equivalent process
+  group on POSIX).
 - Drop the isolated database/schema and remove Docker volumes/networks.
 - Release ports and remove only the keys this workflow added to `env.file`; delete the
   file only when it contains no unmanaged keys.
+- Read `--copied-manifest` when provided, and never delete a listed path.
 - Be safe to run twice, and safe when a resource is already gone.
 - Guard destructive operations: only act on names derived from this worktree and only
   when they carry the configured prefix. Never drop a shared or production database.
@@ -517,6 +527,7 @@ The report must list:
 - the `cleanup` list used by `--purge`;
 - the integration mode and integration branch, and the PR tool in pull-request mode;
 - the environment boundary: whether `env.file` exists and which keys are managed;
+- how the scripts consume `--copied-manifest` and which paths are read-only;
 - self-check results from `--check` and `--dry-run` on both scripts;
 - known assumptions and a short review checklist.
 
@@ -585,6 +596,7 @@ Verify, in the primary worktree:
 - `.worktreeinclude` exists.
 - The scripts exist with the core and project-hook logic, either as separate files or as
   clearly separated functions; their runner is installed, and `--check` passes for both.
+- The scripts accept `--copied-manifest` and document which paths they treat as read-only.
 - When `env.file` is configured, it is ignored and not tracked.
 - For local storage, `git check-ignore -q .worktrees` succeeds.
 - The setup commit exists, or the user declined it.
@@ -638,6 +650,7 @@ commit, say so explicitly and list the uncommitted setup paths.
   recorded and confirmed by the user.
 - [ ] Init and teardown scripts exist with the core and project-hook logic, either as
   separate files or clearly separated functions, and follow the CLI/JSON contract.
+- [ ] The scripts accept `--copied-manifest` and treat every listed path as read-only.
 - [ ] `--check` passes for both scripts; `--dry-run` was exercised.
 - [ ] The workflow doc contains the schema 2 YAML configuration block.
 - [ ] The machine-readable config exists and matches the document block.
