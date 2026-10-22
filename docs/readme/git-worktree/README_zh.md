@@ -46,11 +46,12 @@
 - **先有需求。** 用户说明具体需求后才创建 worktree；没有随机 scratch 名称。
 - **控制面与数据面分离。** `AGENTS.md`、工作流文档、配置、脚本和状态元数据放在主 worktree；linked worktree 只放正在修改的代码。
 - **`.worktreeinclude` 只复制匹配且被 gitignore 的文件。** tracked 文件和 untracked-but-not-ignored 文件不会复制；复制发生在 `git worktree add` 之后、init 之前。
+- **复制的文件在 init 前记录。** 状态目录下的 manifest 列出所有 copied 路径；init 和 teardown 把这些路径视为只读，purge 不会删除它们。
 - **setup 只提交自己的文件。** 使用 `git commit --only`，不会把用户已 staged 的改动一起提交；也不会替用户提交业务代码。生成脚本是 review 过的基线，项目 hook 仍由用户拥有。
 - **单一机器可读配置。** 工作流文档的 YAML 块和 `worktree.config.json` 从同一份值生成；脚本读配置，两者不一致时 skill 停止。
 - **环境变量归项目所有。** 工作流只写 `env.file`（默认 `.env.worktree`），且只写它管理的 key；绝不写 `.env`、`.env.local` 或其他项目 env 文件。项目在自己的配置里加载 `env.file`。项目本来没有 env 配置时，不生成 env 文件。
 - **合并保留 merge commit。** direct 模式使用 `git merge --no-ff`；PR 模式要求平台使用 merge commit。拒绝 rebase 和 squash。
-- **destroy 有安全检查。** cleanup 成功不等于可以删除；未提交文件、ignored 产物、未推送提交、未合并 branch、dirty submodule 和 lock 都会先检查。`git worktree remove` 失败后走经过验证的 orphan 流程，而不是无守卫地删除目录。
+- **destroy 有安全检查。** cleanup 成功不等于可以删除；未提交文件、ignored 产物、未推送提交、未合并 branch、dirty submodule 和 lock 都会先检查。`git worktree remove` 失败后走经过验证的 orphan 流程，而不是无守卫地删除目录。只有命令行包含该 worktree 路径的监听进程才会按进程树停止；无关进程只报告，不杀。
 - **共享与隔离资源。** 邮件 API key 等无状态外部服务可以共享；数据库、端口、容器、Redis 命名空间和对象存储前缀按 worktree 隔离。
 
 ## 安装

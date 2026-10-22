@@ -73,6 +73,9 @@ document, config, scripts, and state to schema 2 and to add the landing settings
 - **`.worktreeinclude` copies only matching, gitignored files.** Tracked files and
   untracked-but-not-ignored files are not copied. The file is copied after
   `git worktree add` and before init.
+- **Copied files are recorded before init.** A manifest under the state directory lists
+  every copied path; init and teardown treat those paths as read-only, and purge never
+  deletes them.
 - **Setup commits only its own files.** It uses `git commit --only` so the user's staged
   changes are not swept into the setup commit. It does not commit the user's business
   code. Generated scripts are a reviewed baseline; project hooks remain the user's.
@@ -88,7 +91,8 @@ document, config, scripts, and state to schema 2 and to add the landing settings
 - **Destroy is gated.** Cleanup success is not enough. Dirty files, ignored artifacts,
   unpushed commits, unmerged branches, dirty submodules, and locks are checked before
   anything is removed. A failed `git worktree remove` is followed by a verified orphan
-  procedure, not an unguarded delete.
+  procedure, not an unguarded delete. A listener is stopped as a process tree only when
+  its command line references the worktree; an unrelated listener is reported.
 - **Shared versus isolated resources.** Stateless external services such as an email API
   key are shared; databases, ports, containers, Redis namespaces, and object-storage
   prefixes are isolated per worktree.
