@@ -2,10 +2,11 @@
 name: create-git-worktree
 description: >-
   Create an isolated git worktree for the user's stated requirement, copy
-  .worktreeinclude files, run the worktree init script, and move the session into the new
-  worktree. Use when the user wants to start a new worktree, create an isolated checkout,
-  or develop a feature in parallel. Requires the setup-git-worktree workflow.
-compatibility: Requires Git 2.17+, a completed worktree setup, and write access to the storage root.
+  .worktreeinclude files, run the worktree init script, lock the worktree, record schema 2
+  state, and move the session into the new worktree. Use when the user wants to start a
+  new worktree, create an isolated checkout, or develop a feature in parallel. Requires
+  the setup-git-worktree workflow.
+compatibility: Requires Git 2.17+, a completed worktree setup, and write access to the storage root and the repository's Git directory.
 ---
 
 # Create a Git Worktree
@@ -49,20 +50,33 @@ Do not invent paths, scripts, or storage rules. The doc is the single source of 
 Parse and validate these keys:
 
 ```text
-schema
+schema                 # 2; accept 1 and derive defaults
+config_file
 storage.mode, storage.root, storage.namespace
 scripts.dir, scripts.init, scripts.teardown, scripts.runner
+scripts.core_dir, scripts.hooks_dir
 scripts.windows.runner/init/teardown   (optional)
 scripts.unix.runner/init/teardown      (optional)
 base_ref
 include_file
 state_dir
 naming.branch          # must be same-as-worktree
+integration.mode, integration.branch, integration.remote
+env.file, env.managed_keys             (optional)
+cleanup
 ```
 
-If `schema` is not `1`, stop and ask the user to re-run setup. If a required key is
-missing, stop and report the key. If `naming.branch` is not `same-as-worktree`, stop and
-ask the user to re-run setup; this skill requires branch and worktree leaf to match.
+If `schema` is not `1` or `2`, stop and ask the user to re-run setup. If a required key
+is missing, stop and report the key. If `naming.branch` is not `same-as-worktree`, stop
+and ask the user to re-run setup; this skill requires branch and worktree leaf to match.
+
+If `config_file` is present, read it and verify it agrees with the document block. On a
+mismatch, stop; the workflow configuration is inconsistent and setup must resolve it.
+
+For schema 1, derive `integration.branch` from the primary's current branch
+(`git -C <primary> rev-parse --abbrev-ref HEAD`), leave `integration.mode` as `direct`,
+and treat `cleanup` as empty. Warn that the setup predates schema 2 and offer to re-run
+setup before creating.
 
 Resolve the **effective script set**: on Windows use `scripts.windows` when present; on
 Unix-like systems use `scripts.unix` when present; otherwise use the top-level
@@ -108,8 +122,9 @@ Build the name from the requirement:
 - 1–40 characters.
 - Must start and end with a letter or digit.
 - No consecutive hyphens.
-- Reject `.`, `..`, `HEAD`, `main`, `master`, the `base_ref` leaf name, and Windows
-  reserved names (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`).
+- Reject `.`, `..`, `HEAD`, `main`, `master`, the `base_ref` leaf name, the
+  `integration.branch` leaf name, and Windows reserved names (`con`, `prn`, `aux`, `nul`,
+  `com1`–`com9`, `lpt1`–`lpt9`).
 - Reject names ending in a dot or space.
 - Detect names that collide case-insensitively with an existing branch or directory;
   Step 3 decides reuse, suffix, or abort.
@@ -147,9 +162,14 @@ Run every check. Do not create on a failed gate without an explicit user decisio
 
 **Setup artifacts**
 
-- The doc, the configured include file, and the effective init and teardown scripts exist.
+- The doc, the configured config file, the include file, and the effective init and
+  teardown scripts exist. If `config_file` is configured, it must exist and match the
+  document.
 - The effective runner is installed (`node --version`, `python --version`,
   `pwsh -v`, `powershell -v`, or `bash --version`).
+- If `env.file` is configured, `git check-ignore -q <env.file>` must succeed. A generated
+  env file that can be committed is a setup defect; stop and ask the user to re-run
+  setup.
 
 **Repository baseline**
 
@@ -180,9 +200,18 @@ Do not stash or commit on the user's behalf unless they ask.
 **Base ref**
 
 `git -C <primary> rev-parse --verify <base_ref>` must succeed. Resolve and record the
-full commit SHA as `<base_commit>`; the state file and destroy gates need a fixed commit,
-not the symbolic `HEAD`. If it is a remote-tracking ref that is missing, ask the user to
-fetch or choose another ref; do not fetch silently.
+full commit SHA as `<base_commit>`; the state file and the "commits since creation"
+display need a fixed commit, not the symbolic `HEAD`. Prefer `integration.branch` as the
+base. If `base_ref` is `HEAD`, warn that the worktree will be based on whatever branch is
+checked out, not on the integration branch, and ask whether to use `integration.branch`
+instead. If it is a remote-tracking ref that is missing, ask the user to fetch or choose
+another ref; do not fetch silently.
+
+**Integration target**
+
+The configured `integration.branch` must resolve locally. If it does not, stop and ask
+the user to fetch or re-run setup. This skill does not merge; it records the integration
+branch for the later `merge-git-worktree` step.
 
 **Name and path collisions**
 
@@ -208,7 +237,9 @@ worktrees, show them and ask:
 1. Switch to an existing worktree (resume).
 2. Create a new one.
 
-Do not create a duplicate silently.
+Do not create a duplicate silently. If the user creates a new one, warn that other
+worktrees are based on an older integration head and will need to land through
+`merge-git-worktree` before or after this one; the order matters and the user owns it.
 
 Done when all gates pass, or the user chooses to resume an existing worktree. On resume,
 skip to the resume section instead of creating a new worktree.
@@ -237,7 +268,19 @@ git -C <path> rev-parse --abbrev-ref HEAD
 
 The first must equal `<path>`; the second must equal `<name>`.
 
-Done when the worktree is registered and checked out on the expected branch.
+Lock the worktree to this session:
+
+```text
+git -C <primary> worktree lock --reason "worktree-workflow: <name>" <path>
+```
+
+The lock is a signal, not a security boundary: destroy must show the reason and ask
+before unlocking. If the lock cannot be written because the host blocks writes to the
+Git directory, warn that another session could remove the worktree and continue; do not
+fail the creation for that reason alone.
+
+Done when the worktree is registered, checked out on the expected branch, and preferably
+locked.
 
 ## Step 5 — Copy the include file
 
@@ -282,11 +325,17 @@ Copy rules:
 
     If a file is not ignored, warn. It may show as untracked and could be committed by
     mistake.
+12. Record every copied relative path in `<copied_files>`. State and destroy use the
+    list to avoid deleting copied files during cleanup.
+13. Never copy `env.file` (default `.env.worktree`); it is generated by init, not
+    copied. If `env.file` matches an include pattern, stop and report the setup conflict;
+    a generated file and a copied file must not share a path.
 
 If a matched file cannot be copied, stop. The isolation may depend on it. Remove the
 worktree only after asking; otherwise leave it for inspection.
 
-Done when every matched file is copied, or the include file is a no-op.
+Done when every matched file is copied, `<copied_files>` is recorded, or the include file
+is a no-op.
 
 ## Step 6 — Run init
 
@@ -295,15 +344,25 @@ init filename resolved in Step 0:
 
 ```text
 <runner> <primary>/<scripts.dir>/<init> \
-  --repo <primary> --worktree <path> --name <name> --json
+  --repo <primary> --worktree <path> --name <name> \
+  --config <primary>/<config_file> --json
 ```
 
 - Set the command working directory to `<path>`.
+- If `config_file` is absent (schema 1), omit `--config`; the script reads its own
+  defaults. If `config_file` is present, pass it explicitly.
 - Capture stdout and stderr. Keep the log path.
 - Use a generous timeout for dependency installation. If the command times out, treat it
   as a failure and inspect the log.
 - The script must not prompt. If it asks for input, stop and report a script bug.
 - Parse the last JSON line. Success requires exit code `0` and `"ok": true`.
+- If `env.file` is configured, the script may write only that file and only
+  `env.managed_keys`. It must not write `.env`, `.env.local`, or any other project env
+  file. If it does, stop and report a script bug.
+- If no `env.file` is configured, the script must not create an env file. Use the values
+  returned in the JSON (for example a port) when running project commands.
+- Do not treat the port or env values as persistent shell exports; pass them to each
+  command or let the project load `env.file`.
 
 Done when init exits 0 with `"ok": true`.
 
@@ -339,7 +398,9 @@ Then ask whether to:
 1. Keep the worktree for debugging.
 2. Remove it.
 
-If removing, run teardown first when possible. Then `git worktree remove --force`.
+If removing, unlock first (`git worktree unlock <path>`), run teardown when possible, then
+`git worktree remove --force`. If removal leaves a directory behind, follow the
+`destroy-git-worktree` orphan procedure; do not recursively delete an unverified path.
 Keep the branch unless the user explicitly asks to delete it. Do not write a success
 state.
 
@@ -358,23 +419,38 @@ If the result is relative, resolve it against `<primary>`. Write
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "name": "<name>",
   "branch": "<actual branch from git>",
   "path": "<absolute worktree path>",
   "repo_root": "<primary>",
   "primary_root": "<primary>",
+  "integration_branch": "<integration.branch>",
   "base_ref": "<base_ref>",
   "base_commit": "<full SHA resolved from base_ref in the primary>",
   "requirement": "<one-line requirement>",
-  "created_at": "<ISO 8601>",
+  "created_at": "<ISO 8601 UTC, milliseconds>",
+  "lifecycle": "init_ok",
   "init": "ok",
+  "teardown": null,
+  "merged_commit": null,
+  "merged_at": null,
+  "pr_url": null,
+  "copied_files": ["<relative path>", "..."],
+  "pids": [],
+  "owner_label": null,
   "resources": {}
 }
 ```
 
-Fill `resources` from the init JSON. If state cannot be written, continue but warn; Git
-remains the source of truth for worktree existence.
+Fill `resources` from the init JSON. Set `copied_files` from Step 5. `pids` is optional:
+record background job PIDs when the host exposes them; otherwise leave it empty.
+`owner_label` is optional and human-readable, for example the requirement or a name the
+user gives; it is never a session ID and never an authorization check. Use absolute paths
+with forward slashes and UTC milliseconds so state files are comparable across hosts.
+
+If state cannot be written, continue but warn; Git remains the source of truth for
+worktree existence.
 
 Switch the session's working directory to `<path>`. If the agent has no persistent `cd`,
 use `<path>` as the working directory for every subsequent shell command and absolute
@@ -387,7 +463,9 @@ End the answer with:
 Worktree: <path>
 Branch: <actual branch>
 Base: <base_ref> (<base_commit short>)
+Integration: <integration.branch> (<integration.mode>)
 Isolation: <ports / database / containers / other resources>
+Land: use the merge-git-worktree skill when the work is ready.
 Return: use the destroy-git-worktree skill when finished.
 ```
 
@@ -400,11 +478,16 @@ From this point until the worktree is destroyed:
 - Every shell command uses the worktree as its working directory.
 - Every file tool uses an absolute path under the worktree.
 - Every Git command uses `git -C <worktree>` for code operations. Only control-plane
-  commands (`git worktree list/remove`, `git branch`) may target the primary.
+  commands (`git worktree list/lock/unlock/remove`, `git branch`) may target the primary.
+  Landing is not a create operation: when the user asks to merge, land, push, or open a
+  pull request, load the `merge-git-worktree` skill instead of merging from here.
 - Every subagent receives the worktree as its `cwd`, and its prompt includes the
   absolute worktree path.
-- Every background job uses the worktree as its working directory. Record the job IDs;
-  kill them before destroy.
+- Every background job uses the worktree as its working directory. Record the job ID and,
+  when the host exposes it, the process ID. Before destroy, stop the process tree rather
+  than only the shell, and verify the allocated ports have no listener.
+- Do not edit `.env`, `.env.local`, or any project env file. Only `env.file` is
+  workflow-owned.
 - Before a new task, verify `git rev-parse --show-toplevel` equals the worktree. If not,
   switch back.
 - After context loss, recover the path from the create banner or state file. If neither
@@ -420,16 +503,31 @@ If the user chooses an existing worktree at the preflight gate:
 - Confirm it is registered by `git worktree list --porcelain` and is not the primary.
 - Switch to it.
 - Do not rerun init unless the user asks or the script is documented as safe to rerun.
-- Refresh its state file.
+- If it is not locked, lock it with the workflow reason. If it is locked with a different
+  reason, show the reason and ask before changing it.
+- Refresh its state file to schema 2 when possible; preserve `base_commit`, `resources`,
+  and `copied_files` if the old state has them.
 - Print the same switch banner.
 
 Do not create a new worktree just because the requirement name is similar.
+
+Done when the session is in the resumed worktree, its lock is correct, its state is
+refreshed, and the switch banner is printed.
 
 ## Edge cases
 
 - **Setup missing**: stop and direct the user to setup-git-worktree.
 - **Invalid or stale doc**: stop and ask the user to re-run setup. Do not edit the doc
   from this skill.
+- **Doc and config disagree**: stop. The workflow configuration is inconsistent; setup
+  must resolve it before a worktree is created.
+- **Schema 1 setup**: derive the integration branch from the primary's current branch,
+  warn that the setup predates schema 2, and offer to re-run setup. Do not silently
+  invent `integration` or `cleanup` values.
+- **Env file in `.worktreeinclude`**: stop and report the setup conflict; a generated
+  file and a copied file must not share a path.
+- **Env file not ignored**: stop and ask the user to re-run setup. A generated env file
+  that can be committed is a setup defect.
 - **Bare repository**: stop. A primary checkout is required.
 - **Unborn HEAD**: warn that the worktree will be empty; require confirmation.
 - **Dirty primary**: explain that uncommitted changes are not in the worktree; ask.
@@ -439,8 +537,10 @@ Do not create a new worktree just because the requirement name is similar.
 - **Include copy failure**: stop; keep the worktree for inspection unless the user asks
   to remove it.
 - **Init failure**: follow Step 7; no success banner.
-- **Locked worktree**: `git worktree list --porcelain` shows `locked`; ask before
-  unlocking or removing.
+- **Lock failure**: warn that another session could remove the worktree; continue. Do
+  not fail creation because the host blocks Git-directory writes.
+- **Locked worktree**: `git worktree list --porcelain` shows `locked`; show the reason
+  and ask before unlocking or removing.
 - **Windows**: quote paths, watch path length, and account for file locks from dev
   servers and package managers.
 - **Concurrent creation**: another session may create the same name. If the branch or
@@ -448,13 +548,17 @@ Do not create a new worktree just because the requirement name is similar.
 
 ## Completion criteria
 
-- [ ] `AGENTS.md` and the workflow doc were read and validated.
+- [ ] `AGENTS.md`, the workflow doc, and the config were read and validated.
 - [ ] A concrete requirement was captured; no random or scratch name was used.
 - [ ] Branch and worktree leaf share one canonical name.
 - [ ] Every preflight gate passed or the user chose to resume.
 - [ ] `git worktree add` succeeded and the worktree is on the expected branch.
-- [ ] Files from the configured include file were copied, or the file was a no-op.
+- [ ] The worktree is locked, or a lock warning was reported.
+- [ ] Files from the configured include file were copied and recorded in
+      `copied_files`, or the file was a no-op.
 - [ ] Init succeeded and its JSON was parsed, or this is a resume and init was
       deliberately skipped.
-- [ ] State was written under `<common>/<state_dir>/`, or a write warning was reported.
+- [ ] No project env file was written; only `env.file` was touched when configured.
+- [ ] Schema 2 state was written under `<common>/<state_dir>/`, or a write warning was
+      reported.
 - [ ] The session cwd is the worktree, and the switch banner was printed at the end.
