@@ -8,6 +8,8 @@ This is a skills set repository.
 - `docs/` holds all kinds of documentation.
 - `docs/readme/` holds the README for each skill group, and the root README references them.
 - `docs/agents/` holds the AGENTS.md for each skill group, and this file references them.
+- `tests/` holds all tests, one directory per skill group at `tests/<group>/`, mirroring
+  `skills/<group>/`. Tests are repository maintenance, so they never ship with a skill.
 
 ## Agent guides
 

@@ -110,10 +110,12 @@ group READMEs, and this guide in the same edit.
 
 ## Tests
 
-`tests/env-file-regression.mjs` is a scratch-worktree fixture for the env contract. It
-writes `FOO=bar` plus the first managed key into `env.file`, runs init and teardown, and
-asserts that the unmanaged key survives while the managed key is added and removed. It is
-not shipped with the skills; run it manually against a target worktree.
+[`tests/git-worktree/env-file-regression.mjs`](../../../tests/git-worktree/env-file-regression.mjs)
+is a scratch-worktree fixture for the env contract. It writes `FOO=bar` plus the first
+managed key into `env.file`, runs init and teardown, and asserts that the unmanaged key
+survives while the managed key is added and removed. It lives in the repository's `tests/`
+tree, not next to this guide, so it does not ship with the skills; run it manually against
+a target worktree.
 
 ## Review checklist
 
