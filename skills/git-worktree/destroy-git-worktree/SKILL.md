@@ -425,7 +425,7 @@ Done when the state entry is either cleared or deliberately kept with a reason, 
 End the answer with:
 
 ```text
-本次会话已切换回 main worktree。
+This session has switched back to the main worktree.  [in the user's language]
 Primary: <primary path>
 Branch: <primary branch>
 Integration: <integration.branch> (<integration.mode>)
@@ -435,10 +435,13 @@ Resources: cleaned | still present: <list>
 Cleanup: purged | left: <list>
 ```
 
-The exact phrase `本次会话已切换回 main worktree` must appear at the end. If cleanup or
-a gate failed, say `destroy incomplete` and explain what remains. If an orphan directory
-was removed manually, state the verified absolute path and that it was unregistered
-before deletion.
+The banner's first line must state that the session has switched back to the main
+worktree. The English wording above is canonical; the bracketed marker beside it means
+the line is emitted in the language the user is actually writing in, not always in
+English. Keep the banner at the end and keep its meaning stable, so users and recovery
+paths still recognize it in any language. If cleanup or a gate failed, say
+`destroy incomplete` and explain what remains. If an orphan directory was removed
+manually, state the verified absolute path and that it was unregistered before deletion.
 
 Done when the final banner is printed and every remaining resource or kept branch is
 named.
@@ -502,4 +505,5 @@ named.
 - [ ] The branch was deleted after successful removal, or kept with a reason.
 - [ ] State and the copied manifest were cleared or deliberately kept with a reason;
       `git worktree prune` ran.
-- [ ] The final answer contains `本次会话已切换回 main worktree`.
+- [ ] The final answer ends with the switch-back banner, rendered in the language the user
+      is actually writing in.
