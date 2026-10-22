@@ -99,8 +99,11 @@ that silently half-works.
   rebase, no squash. Direct mode merges locally; pull-request mode pushes and opens a PR.
   `merge` records `lifecycle: merged` or `pr_open`, `merged_commit`, `merged_at`, and
   `pr_url`.
-- The closing banners: `create` prints `本次会话已切换到 worktree 环境。`, `destroy` ends
-  with `本次会话已切换回 main worktree`. Both are matched by users and by recovery paths.
+- The closing banners: `create` prints `This session has switched to the worktree
+  environment.`, `destroy` ends with `This session has switched back to the main
+  worktree.` Both lines carry a marker to render them in the language the user is actually
+  writing in; their English wording is canonical. Both are matched by users and by recovery
+  paths, so keep their meaning and position stable even when translated.
 
 A change to any item above must land in all four `SKILL.md` files, the root README, both
 group READMEs, and this guide in the same edit.
