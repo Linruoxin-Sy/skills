@@ -285,8 +285,8 @@ locked.
 ## Step 5 — Copy the include file
 
 Read `<primary>/<include_file>` (default `.worktreeinclude`). If it is missing, stop and
-tell the user setup is incomplete. If it is empty or comments only, skip this step and
-continue.
+tell the user setup is incomplete. If it is empty or comments only, skip the copy loop
+but still write the empty manifest described below before running init.
 
 Copy rules:
 
@@ -331,11 +331,23 @@ Copy rules:
     copied. If `env.file` matches an include pattern, stop and report the setup conflict;
     a generated file and a copied file must not share a path.
 
+Before init, resolve `<common>` with `git -C <primary> rev-parse --git-common-dir` and
+make it absolute. Create `<common>/<state_dir>` if needed, then write
+`<common>/<state_dir>/<name>.copied.json` atomically:
+
+```json
+{"schema": 1, "name": "<name>", "files": ["<relative path>", "..."]}
+```
+
+Use an empty `files` array when nothing was copied. This manifest is the read-only input
+for init and teardown; it is not committed. If it cannot be written, stop before init:
+the scripts cannot protect copied files without it.
+
 If a matched file cannot be copied, stop. The isolation may depend on it. Remove the
 worktree only after asking; otherwise leave it for inspection.
 
-Done when every matched file is copied, `<copied_files>` is recorded, or the include file
-is a no-op.
+Done when every matched file is copied, `<copied_files>` is recorded, and the manifest
+exists; the include file may be a no-op.
 
 ## Step 6 — Run init
 
@@ -345,12 +357,16 @@ init filename resolved in Step 0:
 ```text
 <runner> <primary>/<scripts.dir>/<init> \
   --repo <primary> --worktree <path> --name <name> \
-  --config <primary>/<config_file> --json
+  --config <primary>/<config_file> \
+  --copied-manifest <common>/<state_dir>/<name>.copied.json --json
 ```
 
 - Set the command working directory to `<path>`.
 - If `config_file` is absent (schema 1), omit `--config`; the script reads its own
   defaults. If `config_file` is present, pass it explicitly.
+- Pass `--copied-manifest` even when it lists no files. The script must treat every listed
+  path as read-only; if it writes one, stop and report a script bug.
+- Quote the config and manifest paths when they contain spaces.
 - Capture stdout and stderr. Keep the log path.
 - Use a generous timeout for dependency installation. If the command times out, treat it
   as a failure and inspect the log.
@@ -399,8 +415,9 @@ Then ask whether to:
 2. Remove it.
 
 If removing, unlock first (`git worktree unlock <path>`), run teardown when possible, then
-`git worktree remove --force`. If removal leaves a directory behind, follow the
-`destroy-git-worktree` orphan procedure; do not recursively delete an unverified path.
+`git worktree remove --force`. After the worktree is gone, remove
+`<common>/<state_dir>/<name>.copied.json`. If removal leaves a directory behind, follow
+the `destroy-git-worktree` orphan procedure; do not recursively delete an unverified path.
 Keep the branch unless the user explicitly asks to delete it. Do not write a success
 state.
 
@@ -486,6 +503,11 @@ From this point until the worktree is destroyed:
 - Every background job uses the worktree as its working directory. Record the job ID and,
   when the host exposes it, the process ID. Before destroy, stop the process tree rather
   than only the shell, and verify the allocated ports have no listener.
+  - Windows: `taskkill /PID <pid> /T /F`.
+  - POSIX: `kill -- -<pgid>`, or terminate the process group that owns the job.
+  - Resolve a listener before stopping it (`Get-NetTCPConnection -LocalPort <port>` plus
+    `Get-CimInstance Win32_Process`, or `lsof -nP -iTCP:<port> -sTCP:LISTEN`), and stop
+    it only when its command line contains the worktree path.
 - Do not edit `.env`, `.env.local`, or any project env file. Only `env.file` is
   workflow-owned.
 - Before a new task, verify `git rev-parse --show-toplevel` equals the worktree. If not,
@@ -528,6 +550,8 @@ refreshed, and the switch banner is printed.
   file and a copied file must not share a path.
 - **Env file not ignored**: stop and ask the user to re-run setup. A generated env file
   that can be committed is a setup defect.
+- **Copied manifest cannot be written**: stop before init. Without the manifest, init
+  cannot guarantee that copied files stay read-only.
 - **Bare repository**: stop. A primary checkout is required.
 - **Unborn HEAD**: warn that the worktree will be empty; require confirmation.
 - **Dirty primary**: explain that uncommitted changes are not in the worktree; ask.
@@ -555,7 +579,7 @@ refreshed, and the switch banner is printed.
 - [ ] `git worktree add` succeeded and the worktree is on the expected branch.
 - [ ] The worktree is locked, or a lock warning was reported.
 - [ ] Files from the configured include file were copied and recorded in
-      `copied_files`, or the file was a no-op.
+      `copied_files`, or the file was a no-op; the copied manifest existed before init.
 - [ ] Init succeeded and its JSON was parsed, or this is a resume and init was
       deliberately skipped.
 - [ ] No project env file was written; only `env.file` was touched when configured.

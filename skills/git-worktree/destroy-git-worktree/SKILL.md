@@ -120,8 +120,11 @@ Done when one target worktree is chosen and the user has confirmed it.
   display. If the state is missing, reconstruct fields from Git: resolve
   `integration.branch` in the primary, and resolve `base_ref` to a commit for the
   "commits since creation" display. Record the reconstructed values in memory.
-- Read `copied_files` and `cleanup` when present. Copied files must never be deleted by
-  purge; cleanup paths are the only ignored paths `--purge` may remove.
+- Read `copied_files` and `cleanup` when present. Also read
+  `<common>/<state_dir>/<name>.copied.json` when it exists and union its `files` with
+  `copied_files`. If the manifest exists but cannot be parsed, stop and report; do not
+  guess which files are read-only. Copied files must never be deleted by purge; cleanup
+  paths are the only ignored paths `--purge` may remove.
 - Check `locked` and the lock reason in `git worktree list --porcelain`. If locked, show
   the reason and ask before running `git worktree unlock <path>`. A lock may mean another
   session is active; do not unlock silently.
@@ -130,6 +133,16 @@ Done when the target is safe to operate on and the user has confirmed the target
 
 ## Step 3 — Run teardown
 
+Before teardown, resolve listeners on the ports allocated to this worktree (state
+`resources`, the port registry, or the script's own record). For each listener:
+
+- Resolve the PID and command line (`Get-NetTCPConnection -LocalPort <port>` plus
+  `Get-CimInstance Win32_Process`, or `lsof -nP -iTCP:<port> -sTCP:LISTEN` / `ss -ltnp`).
+- Stop it only when the command line contains the absolute worktree path. Terminate the
+  process tree (`taskkill /PID <pid> /T /F` or `kill -- -<pgid>`).
+- If the owner is unclear or unrelated, stop and report; do not kill it.
+- After stopping, verify the port has no listener.
+
 If the worktree directory exists and is registered, switch to it. If it is an orphan, stay
 in the primary and pass the saved path and name to the script. Run the control-plane
 teardown script with explicit arguments:
@@ -137,11 +150,13 @@ teardown script with explicit arguments:
 ```text
 <runner> <primary>/<scripts.dir>/<teardown> \
   --repo <primary> --worktree <target> --name <name> \
-  --config <primary>/<config_file> --json
+  --config <primary>/<config_file> \
+  --copied-manifest <common>/<state_dir>/<name>.copied.json --json
 ```
 
 - Capture stdout and stderr; keep the log path.
 - If `config_file` is absent (schema 1), omit `--config`; otherwise pass it explicitly.
+- If the copied manifest is absent, omit `--copied-manifest`; otherwise pass it explicitly.
 - Use a generous timeout for stopping services and dropping resources.
 - The script must be non-interactive and idempotent.
 - Do not pass `--purge` here. Purge removes ignored artifacts and runs only after the
@@ -288,14 +303,15 @@ idempotent:
 ```text
 <runner> <primary>/<scripts.dir>/<teardown> \
   --repo <primary> --worktree <target> --name <name> \
-  --config <primary>/<config_file> --json --purge
+  --config <primary>/<config_file> \
+  --copied-manifest <common>/<state_dir>/<name>.copied.json --json --purge
 ```
 
 If purge fails, report which path is locked and which process may hold it. Do not delete
 an unverified path by hand and do not run `git worktree remove` while a cleanup path is
 locked; ask the user to stop the process and retry. For schema 1 or a teardown script
-that does not support `--purge`, omit `--purge`; use the same `--config` rule as Step 3:
-omit it when there is no config file.
+that does not support `--purge`, omit `--purge`. Omit `--config` and
+`--copied-manifest` when those files do not exist; otherwise pass them explicitly.
 
 If the worktree is registered and locked, unlock it after the user confirmed:
 
@@ -388,6 +404,8 @@ Done when the branch is deleted or deliberately kept.
 
 - Remove `<common>/<state_dir>/<name>.json` only when the worktree was removed and the
   branch was deleted.
+- Remove `<common>/<state_dir>/<name>.copied.json` only when the state file is removed.
+  Keep both when the state is kept for recovery.
 - Before removing it, set `lifecycle: destroyed` and `teardown: "ok"` when the state
   exists; this is the audit record for the last write.
 - If the user chose force remove with a failed teardown, or kept the branch, keep the
@@ -444,7 +462,9 @@ named.
 - **Locked worktree**: show the reason and ask before unlocking. A lock may mean another
   agent is active.
 - **Background jobs**: stop jobs whose working directory is the target before teardown
-  and removal. Stop the process tree, not only the shell; verify the allocated ports.
+  and removal. Stop the process tree, not only the shell (`taskkill /PID <pid> /T /F`, or
+  `kill -- -<pgid>`). Verify the allocated ports, and only stop a listener whose command
+  line contains the target path.
 - **Global permission denied**: treat as a failure; keep the worktree and report the
   denied path. Do not silently fall back.
 - **Teardown script missing**: stop and ask the user to re-run setup.
@@ -467,6 +487,8 @@ named.
 - [ ] The target was confirmed by the user, not inferred from cwd alone.
 - [ ] Target is not the primary and is inside the storage root.
 - [ ] Teardown ran; a failure produced a keep/retry/force decision, not a silent removal.
+- [ ] Worktree-owned listeners were stopped as process trees; unrelated listeners were
+      left alone and reported.
 - [ ] Dirty, ignored-artifact, unpushed, unmerged, submodule, and lock gates were checked,
       or the target-local ones were explicitly skipped for a verified orphan.
 - [ ] The branch was compared with the integration branch, or with the fetched remote in
@@ -475,6 +497,9 @@ named.
 - [ ] `teardown --purge` ran, was omitted for schema 1, or its failure was reported.
 - [ ] The worktree was removed, or an orphan was verified and deleted, or the user chose
       to leave it with a reason.
+- [ ] The copied manifest and state `copied_files` were read when present; purge did not
+      delete a copied path.
 - [ ] The branch was deleted after successful removal, or kept with a reason.
-- [ ] State was cleared or deliberately kept with a reason; `git worktree prune` ran.
+- [ ] State and the copied manifest were cleared or deliberately kept with a reason;
+      `git worktree prune` ran.
 - [ ] The final answer contains `本次会话已切换回 main worktree`.

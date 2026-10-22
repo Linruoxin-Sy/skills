@@ -82,9 +82,12 @@ that silently half-works.
 - The machine-readable config file named by `config_file`. It mirrors the document block;
   setup writes both and the skills stop when they disagree.
 - The script CLI
-  `<runner> <script> --repo … --worktree … --name … --json [--config …] [--purge] [--check] [--dry-run]`,
+  `<runner> <script> --repo … --worktree … --name … --json [--config …] [--copied-manifest …] [--purge] [--check] [--dry-run]`,
   its exit codes `0`–`6`, and the final-line JSON. The generated scripts separate a fixed
   core from project hooks.
+- The copied-files manifest `<common>/<state_dir>/<name>.copied.json`, schema 1, with
+  `name` and `files`. Create writes it before init and passes it to both scripts; every
+  listed path is read-only for init and teardown. Destroy removes it with the state file.
 - The state file `<common>/<state_dir>/<name>.json`, `schema: 2`, with `name`, `branch`,
   `path`, `integration_branch`, `base_ref`, `base_commit`, `lifecycle`, `copied_files`,
   `resources`, and the optional `pids`/`owner_label`. Readers accept schema 1 and derive
@@ -101,6 +104,13 @@ that silently half-works.
 
 A change to any item above must land in all four `SKILL.md` files, the root README, both
 group READMEs, and this guide in the same edit.
+
+## Tests
+
+`tests/env-file-regression.mjs` is a scratch-worktree fixture for the env contract. It
+writes `FOO=bar` plus the first managed key into `env.file`, runs init and teardown, and
+asserts that the unmanaged key survives while the managed key is added and removed. It is
+not shipped with the skills; run it manually against a target worktree.
 
 ## Review checklist
 
