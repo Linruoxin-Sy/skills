@@ -9,13 +9,14 @@ repeatable workflow for a specific kind of task.
 
 ### git-worktree
 
-Run parallel development sessions in isolated Git worktrees.
+Create, land, and clean up isolated Git worktrees for parallel development sessions.
 
 | Skill | What it does |
 | --- | --- |
-| [setup-git-worktree](skills/git-worktree/setup-git-worktree/SKILL.md) | Initializes a repository's worktree control plane: storage, docs, scripts, and resource isolation. |
-| [create-git-worktree](skills/git-worktree/create-git-worktree/SKILL.md) | Creates a worktree from a stated requirement and moves the session into it. |
-| [destroy-git-worktree](skills/git-worktree/destroy-git-worktree/SKILL.md) | Cleans the environment, checks for work that would be lost, and returns the session to the primary worktree. |
+| [setup-git-worktree](skills/git-worktree/setup-git-worktree/SKILL.md) | Initializes a repository's worktree control plane: storage, docs, config, scripts, and resource isolation. |
+| [create-git-worktree](skills/git-worktree/create-git-worktree/SKILL.md) | Creates a worktree from a stated requirement, provisions it, locks it, and moves the session into it. |
+| [merge-git-worktree](skills/git-worktree/merge-git-worktree/SKILL.md) | Lands the worktree branch with a merge commit, or opens a pull request, and records the result. |
+| [destroy-git-worktree](skills/git-worktree/destroy-git-worktree/SKILL.md) | Purges the environment, checks for work that would be lost, and returns the session to the primary worktree. |
 
 [Read the git-worktree documentation](docs/readme/git-worktree/README.md)
 
