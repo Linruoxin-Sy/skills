@@ -73,6 +73,11 @@ and ask the user to re-run setup; this skill requires branch and worktree leaf t
 If `config_file` is present, read it and verify it agrees with the document block. On a
 mismatch, stop; the workflow configuration is inconsistent and setup must resolve it.
 
+Read the workflow's runtime contract when `contract_version: 1` is present. Validate
+the config independently of document equality, including name rules and optional
+`operations`/`validation` records. Reject unknown contract versions. Legacy schema 1/2
+setups remain readable; absent fields are not evidence of checks or recovery support.
+
 For schema 1, derive `integration.branch` from the primary's current branch
 (`git -C <primary> rev-parse --abbrev-ref HEAD`), leave `integration.mode` as `direct`,
 and treat `cleanup` as empty. Warn that the setup predates schema 2 and offer to re-run
@@ -91,19 +96,21 @@ git rev-parse --git-common-dir
 ```
 
 Different values mean linked. If the current directory is already a linked worktree,
-stop: this session already owns a worktree. Ask the user to destroy it first, or to
-continue working in it.
+do not create another. If the user already chose this path and requirement, validate
+that choice and continue through the resume section. Otherwise ask whether to continue
+there or destroy it first; cwd alone does not establish ownership.
 
 If the current directory is the primary but the conversation already records a worktree
 path for this session, validate it with `git worktree list --porcelain`. If it still
-exists, stop and ask whether to switch to it or destroy it. If it is stale, say so and
+exists, reuse the user's explicit selection or ask whether to switch to it or destroy
+it. If it is stale, say so and
 continue. The one-session-one-worktree rule applies even when the cwd is still primary.
 
 Done when the config is parsed and the primary path is known.
 
 ## Step 1 — Get the requirement
 
-Ask:
+Use the requirement already supplied by the user. Only if it is missing, ask:
 
 > What should this worktree implement? Give me one sentence, including a ticket ID or
 > the key feature name.
@@ -167,6 +174,11 @@ Run every check. Do not create on a failed gate without an explicit user decisio
   document.
 - The effective runner is installed (`node --version`, `python --version`,
   `pwsh -v`, `powershell -v`, or `bash --version`).
+- Run init and teardown with `--check --json` and the prospective repo/worktree/name/
+  config arguments before creation. Require exit 0 plus `ok: true`; version 1 setup
+  also requires `contract_version: 1`. The check creates no files or resources. If an
+  old script cannot check a prospective path or rejects its config schema, stop before
+  creation and request a setup upgrade; do not test compatibility by provisioning.
 - If `env.file` is configured, `git check-ignore -q <env.file>` must succeed. A generated
   env file that can be committed is a setup defect; stop and ask the user to re-run
   setup.
@@ -232,7 +244,8 @@ branch for the later `merge-git-worktree` step.
 **Existing worktrees**
 
 If the current session has no worktree in context but `git worktree list` shows linked
-worktrees, show them and ask:
+worktrees, reuse an explicit new-worktree decision or target selection. Otherwise show
+them and ask:
 
 1. Switch to an existing worktree (resume).
 2. Create a new one.
@@ -245,6 +258,17 @@ Done when all gates pass, or the user chooses to resume an existing worktree. On
 skip to the resume section instead of creating a new worktree.
 
 ## Step 4 — Create the worktree
+
+Resolve `<common>` and acquire `<common>/<state_dir>/locks/<name>.lock` atomically before
+the final collision/state checks. Hold it through copying, init, and summary recording.
+Use the workflow's operation protocol: unique operation ID, target/kind/time metadata,
+bounded wait (default 60 seconds), no age-based reclamation, and release only your own
+ID in a finally path. Permission/I/O errors are not contention. Reread mutable records
+after acquisition. Git's worktree lock below is a separate removal signal.
+
+For a legacy workflow use these same outer-lock rules, but do not pass new script flags
+unless `--check` advertised version 1. A legacy script without durable resource intents
+must not be automatically retried after uncertain provisioning; report the limitation.
 
 ```text
 git -C <primary> worktree add -b <name> <path> <base_commit>
@@ -267,6 +291,14 @@ git -C <path> rev-parse --abbrev-ref HEAD
 ```
 
 The first must equal `<path>`; the second must equal `<name>`.
+
+Immediately write the schema 2 summary from Step 8 with `lifecycle: created`,
+`init: pending`, the actual path/branch/base SHA, empty copied/resources fields, and
+`operation_id`. Write an operation record at
+`<common>/<state_dir>/operations/<name>/<operation_id>.json` before copying or init.
+If either write fails, stop with the worktree retained and report its identity; do not
+start provisioning or claim success. A crash before this write is recovered by Git
+registration and user-confirmed identity, never by creating a duplicate.
 
 Lock the worktree to this session:
 
@@ -343,6 +375,11 @@ Use an empty `files` array when nothing was copied. This manifest is the read-on
 for init and teardown; it is not committed. If it cannot be written, stop before init:
 the scripts cannot protect copied files without it.
 
+Update the pending summary's `copied_files` from this manifest under the target lock.
+On resume, union with the existing manifest; never replace known copied paths with an
+empty list simply because destinations already exist. Record only files actually copied
+or already recorded by this workflow, not unrelated pre-existing destination files.
+
 If a matched file cannot be copied, stop. The isolation may depend on it. Remove the
 worktree only after asking; otherwise leave it for inspection.
 
@@ -358,16 +395,20 @@ init filename resolved in Step 0:
 <runner> <primary>/<scripts.dir>/<init> \
   --repo <primary> --worktree <path> --name <name> \
   --config <primary>/<config_file> \
-  --copied-manifest <common>/<state_dir>/<name>.copied.json --json
+  --copied-manifest <common>/<state_dir>/<name>.copied.json \
+  --operation-id <operation_id> --json
 ```
 
 - Set the command working directory to `<path>`.
 - If `config_file` is absent (schema 1), omit `--config`; the script reads its own
   defaults. If `config_file` is present, pass it explicitly.
+- Pass `--operation-id` only to a version 1 core; it verifies the caller-held lock and
+  leaves it in place. For legacy scripts omit it and retain the outer lock yourself.
 - Pass `--copied-manifest` even when it lists no files. The script must treat every listed
   path as read-only; if it writes one, stop and report a script bug.
 - Quote the config and manifest paths when they contain spaces.
-- Capture stdout and stderr. Keep the log path.
+- Keep redacted stdout/stderr per attempt, using the runtime contract's safe error
+  fields. Never display or persist raw secret-bearing output to diagnose a failure.
 - Use a generous timeout for dependency installation. If the command times out, treat it
   as a failure and inspect the log.
 - The script must not prompt. If it asks for input, stop and report a script bug.
@@ -395,7 +436,15 @@ Classify from the exit code and log:
 | 6 | cleanup or filesystem lock |
 | 1 | other; read the log |
 
-Attempt at most two reversible fixes. Ask before:
+Use stage/operation/category and safe logs before forming a diagnosis. Permit at most
+two transient retries and two reversible fixes per invocation, counted separately from
+bounded lock waiting. Deterministic configuration, permission, or unsupported-option
+errors require a changed condition before retry. Reconcile recorded resource intent
+and actual identity first; a failed response does not prove nothing was created.
+
+Record `lifecycle: created`, `init: failed`, known resource identities and the safe error
+in the operation record and summary before leaving. Preserve prior attempts. Ask before
+the following unless the user already authorized that exact change:
 
 - editing tracked files,
 - installing system or global packages,
@@ -405,7 +454,7 @@ Attempt at most two reversible fixes. Ask before:
 If unresolved, report:
 
 - the exact command,
-- exit code and last 20 log lines,
+- stage, operation, exit code, and up to 20 safe log lines,
 - what failed (dependency, database, port, permission),
 - concrete next steps.
 
@@ -414,12 +463,13 @@ Then ask whether to:
 1. Keep the worktree for debugging.
 2. Remove it.
 
-If removing, unlock first (`git worktree unlock <path>`), run teardown when possible, then
-`git worktree remove --force`. After the worktree is gone, remove
-`<common>/<state_dir>/<name>.copied.json`. If removal leaves a directory behind, follow
-the `destroy-git-worktree` orphan procedure; do not recursively delete an unverified path.
-Keep the branch unless the user explicitly asks to delete it. Do not write a success
-state.
+If removing, hand off to `destroy-git-worktree` for teardown and all loss gates before
+unlocking or any forced removal. Release the
+create operation lock before handing off; destroy acquires a new one and rechecks the
+facts. Keep state, copied manifest, resource records, and diagnostics whenever cleanup
+is incomplete or the branch is kept. Do not recursively delete an unverified path or
+write a success state. Keeping the worktree for diagnosis does not keep a live operation
+lock: record failure, release only your lock, and retain the Git worktree lock.
 
 Done when the user chooses keep or remove and the chosen action completes.
 
@@ -431,8 +481,10 @@ Resolve the common Git directory and make it absolute:
 git -C <primary> rev-parse --git-common-dir
 ```
 
-If the result is relative, resolve it against `<primary>`. Write
-`<common>/<state_dir>/<name>.json` atomically:
+If the result is relative, resolve it against `<primary>`. Under the target operation
+lock, reread and update `<common>/<state_dir>/<name>.json` atomically, preserving
+unknown fields and any init resource records. Use a unique sibling temporary file;
+never truncate the old state. The initial record in Step 4 uses pending values:
 
 ```json
 {
@@ -449,6 +501,7 @@ If the result is relative, resolve it against `<primary>`. Write
   "created_at": "<ISO 8601 UTC, milliseconds>",
   "lifecycle": "init_ok",
   "init": "ok",
+  "operation_id": "<operation_id>",
   "teardown": null,
   "merged_commit": null,
   "merged_at": null,
@@ -466,8 +519,11 @@ record background job PIDs when the host exposes them; otherwise leave it empty.
 user gives; it is never a session ID and never an authorization check. Use absolute paths
 with forward slashes and UTC milliseconds so state files are comparable across hosts.
 
-If state cannot be written, continue but warn; Git remains the source of truth for
-worktree existence.
+Write the operation result before the summary and release your operation lock only
+after recording. If writing fails, retain the prior state, attempt a separate recovery
+record, and report the known path/resources and safe recovery location. Stop without
+claiming initialization fully recorded; do not repeat provisioning. Git remains the
+source of truth for worktree existence.
 
 Switch the session's working directory to `<path>`. If the agent has no persistent `cd`,
 use `<path>` as the working directory for every subsequent shell command and absolute
@@ -529,18 +585,27 @@ Done when the next command runs in the worktree, not the primary.
 If the user chooses an existing worktree at the preflight gate:
 
 - Confirm it is registered by `git worktree list --porcelain` and is not the primary.
+- Acquire the target operation lock before refreshing state. Read summary and operation
+  records together with Git and the resource records. Missing evidence is unknown, not
+  success. An incomplete init stays `created` until explicitly resumed and verified.
 - Switch to it.
 - Do not rerun init unless the user asks or the script is documented as safe to rerun.
+- For authorized init recovery, reconcile existing resource identities under the lock,
+  record a new operation with `resumes_operation_id`, and use Steps 5–8 for unfinished
+  work. Preserve the original copied manifest and never recopy over an existing file.
 - If it is not locked, lock it with the workflow reason. If it is locked with a different
   reason, show the reason and ask before changing it.
 - Refresh its state file to schema 2 when possible; preserve `base_commit`, `resources`,
   and `copied_files` if the old state has them.
+- Preserve unknown base/validation facts as unknown; do not reconstruct an original
+  base SHA from today's moving base ref. Release only your operation lock after writing.
 - Print the same switch banner.
 
 Do not create a new worktree just because the requirement name is similar.
 
 Done when the session is in the resumed worktree, its lock is correct, its state is
-refreshed, and the switch banner is printed.
+refreshed, its operation lock is released, and the switch banner is printed. Report an
+incomplete environment explicitly; the switch banner alone does not mean init passed.
 
 ## Edge cases
 
@@ -567,8 +632,10 @@ refreshed, and the switch banner is printed.
 - **Include copy failure**: stop; keep the worktree for inspection unless the user asks
   to remove it.
 - **Init failure**: follow Step 7; no success banner.
-- **Lock failure**: warn that another session could remove the worktree; continue. Do
+- **Git worktree lock failure**: warn that another session could remove the worktree; continue. Do
   not fail creation because the host blocks Git-directory writes.
+- **Operation lock failure**: stop; never provision without the target mutex. A Git
+  worktree lock cannot substitute for this lock.
 - **Locked worktree**: `git worktree list --porcelain` shows `locked`; show the reason
   and ask before unlocking or removing.
 - **Windows**: quote paths, watch path length, and account for file locks from dev
@@ -582,6 +649,8 @@ refreshed, and the switch banner is printed.
 - [ ] A concrete requirement was captured; no random or scratch name was used.
 - [ ] Branch and worktree leaf share one canonical name.
 - [ ] Every preflight gate passed or the user chose to resume.
+- [ ] Script compatibility was checked before creation; pending state and intent were
+      written before provisioning, and resource recovery did not duplicate ownership.
 - [ ] `git worktree add` succeeded and the worktree is on the expected branch.
 - [ ] The worktree is locked, or a lock warning was reported.
 - [ ] Files from the configured include file were copied and recorded in
@@ -589,6 +658,6 @@ refreshed, and the switch banner is printed.
 - [ ] Init succeeded and its JSON was parsed, or this is a resume and init was
       deliberately skipped.
 - [ ] No project env file was written; only `env.file` was touched when configured.
-- [ ] Schema 2 state was written under `<common>/<state_dir>/`, or a write warning was
-      reported.
+- [ ] Schema 2 state and operation result were written under `<common>/<state_dir>/`
+      before releasing the owned operation lock; write failure was reported as incomplete.
 - [ ] The session cwd is the worktree, and the switch banner was printed at the end.

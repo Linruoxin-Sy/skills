@@ -20,6 +20,14 @@ Create, land, and clean up isolated Git worktrees for parallel development sessi
 
 [Read the git-worktree documentation](docs/readme/git-worktree/README.md)
 
+The shared schema 2 workflow uses runtime contract version 1 for new setups: validated
+same-name configuration, bounded operation locks, recoverable initialization/landing,
+and checks tied to exact commits. Git landing and validation results are recorded
+separately; manual PR instructions stay pending until a PR is confirmed. Existing
+schema 1/2 records remain readable, with missing evidence reported as unknown. Explicit
+worktree-retention choices are respected. Contract changes update all four skills and
+both group READMEs together; maintenance tests live outside the published skills.
+
 ## Using these skills
 
 This repository is a skills source for the [Skills CLI](https://npmx.dev/package/skills)

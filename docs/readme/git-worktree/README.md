@@ -57,12 +57,19 @@ and `destroy` when the task is finished.
 
 Existing schema 1 setups remain readable. Re-run `setup-git-worktree` to migrate the
 document, config, scripts, and state to schema 2 and to add the landing settings.
+New setups add `contract_version: 1` without changing schema 2. Old records do not
+acquire verification evidence merely by being read; missing checks remain unknown.
+The workflow document carries the runtime contract, so consumers do not need access to
+another skill's installation. Script checks detect unsupported capabilities before
+provisioning; an incompatible legacy script needs setup correction first.
 
 ## Design choices
 
 - **One requirement, one session, one worktree.** A session creates at most one worktree
   and destroys it before creating another. There is no agent-specific session ID; a Git
   worktree lock and an explicit user confirmation identify the target.
+  Reuse an explicit target selection after verifying current facts. Keep a worktree
+  when requested; cleanup still needs authorization before another one is created.
 - **Branch equals worktree leaf.** One canonical name is used for the branch and the
   leaf directory, so `git worktree list`, branch operations, and cleanup line up.
 - **Requirement first.** A worktree is created only after the user states what it is
@@ -82,12 +89,30 @@ document, config, scripts, and state to schema 2 and to add the landing settings
 - **One machine-readable config.** The workflow document's YAML block and
   `worktree.config.json` are written from the same values. Scripts read the config; the
   skills stop when the two disagree.
+  Both views must also independently satisfy the contract, including the same-name,
+  1–40 character canonical-name rules; branch templates are not supported.
 - **Environment configuration is project-owned.** The workflow writes only
   `env.file` (default `.env.worktree`) and only the keys it manages. It never writes
   `.env`, `.env.local`, or another project env file. The project loads `env.file` in its
   own configuration. If the project has no env configuration, no env file is generated.
 - **Landing preserves merge commits.** Direct mode uses `git merge --no-ff`; pull-request
   mode requires the platform to use a merge commit. Rebase and squash are rejected.
+- **Operations are serialized and recoverable.** Target locks cover init, merge, and
+  teardown/removal; shared allocation locks are short. Acquire the target lock before a
+  shared lock, wait within `operations.lock_wait_seconds` (default 60), and release only
+  the matching operation ID. These are separate from Git worktree locks. Intents and
+  results are recorded before mutation and lock release respectively, with per-operation
+  redacted logs. Old failed attempts survive later successes.
+- **Landing is tied to exact commits.** Validate a fixed source, recheck under the merge
+  lock, and verify both exact parents. `lifecycle: merged` records the Git fact;
+  `validation` separately records pending/passed/failed/not-configured checks and their
+  SHA. Recovery reconciles Git and resource identities instead of repeating mutations.
+- **Checks remain project-owned.** `validation.checks` stores existing commands as
+  `name`, `argv`, `cwd`, `phases`, and `required`. Missing checks are reported; the skills
+  do not create test policy or operate CI. Git errors never count as clean/unmerged.
+- **PR evidence is precise.** Manual instructions use `pr_pending`; only a confirmed PR
+  uses `pr_open`. Landing records the actual PR merge SHA, not a later integration HEAD.
+  Failed or unknown verification remains visible to destroy and does not bypass its gates.
 - **Destroy is gated.** Cleanup success is not enough. Dirty files, ignored artifacts,
   unpushed commits, unmerged branches, dirty submodules, and locks are checked before
   anything is removed. A failed `git worktree remove` is followed by a verified orphan
@@ -135,3 +160,5 @@ them.
 
 The skills generate project-specific scripts, docs, config, and state at runtime. Those
 files belong to each target repository, not to this repository.
+Only worktree-local provisioning and landing are owned here. Cloud provisioning,
+deployment, CI/review policy, and application test architecture are outside this scope.

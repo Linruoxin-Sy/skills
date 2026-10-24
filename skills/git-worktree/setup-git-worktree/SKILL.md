@@ -17,11 +17,16 @@ compatibility: Requires Git 2.17 or newer and a writable project workspace, incl
 The repository has a complete worktree control plane: an `AGENTS.md` pointer, a workflow
 doc, a machine-readable workflow config, a `.worktreeinclude` file, and init/teardown
 scripts split into a stable core and project hooks. Setup verifies the generated scripts,
-shows a review report, and commits only after the user accepts it. No worktree is created
-by this skill.
+shows a review report, and commits only after the user accepts it. It creates no task
+worktree in the target repository; self-checks may use disposable fixture worktrees.
 
 This skill is idempotent: running it again reconfigures the same files and preserves
 user edits outside the marked sections.
+
+Read [the runtime contract](references/runtime-contract.md) when generating or upgrading
+scripts and the workflow document. It defines the shared config, locks, state, errors,
+and check evidence consumed by all four skills. Include it in the generated workflow
+document so each consumer works without access to this skill's installation directory.
 
 ## Words used in this skill
 
@@ -258,6 +263,11 @@ Record the integration branch, the remote used for pull requests, the PR tool (`
 `glab`, or manual), and whether the agent may push without asking. Every landing preserves
 merge commits: `merge: merge-commit` means `--no-ff`, no rebase, and no squash.
 
+Record existing project checks in `validation.checks` using the runtime contract's argv,
+cwd, phases, and required fields. Reuse project policy and explicit user choices; ask
+only about unresolved requirements. Do not invent tests or a database validation system.
+With no checks, use an empty list and document that validation is not configured.
+
 ### Environment boundary
 
 Ask whether the project already has environment configuration. The workflow must not own
@@ -324,7 +334,7 @@ two functions and mark the project-specific section with a comment.
 Scripts must satisfy this contract:
 
 ```text
-<runner> <script> --repo <primary> --worktree <path> --name <name> --json [--config <path>] [--copied-manifest <path>] [--purge] [--check] [--dry-run]
+<runner> <script> --repo <primary> --worktree <path> --name <name> --json [--config <path>] [--copied-manifest <path>] [--operation-id <id>] [--purge] [--check] [--dry-run]
 ```
 
 - Run from any directory; resolve all paths from the arguments and `--config`.
@@ -336,11 +346,13 @@ Scripts must satisfy this contract:
 - Be idempotent. A second run must succeed without duplicating resources.
 - Print one JSON object on the last stdout line:
   `{"ok":true,"resources":{...}}` or
-  `{"ok":false,"code":<n>,"message":"..."}`.
+  `{"ok":false,"code":<n>,"message":"..."}` with the runtime contract's diagnostic fields.
 - Exit codes: `0` success, `2` configuration, `3` dependency install, `4` database,
   `5` port, `6` cleanup, `1` other.
-- Log to stderr or to `<common-git-dir>/<state_dir>/logs/<name>.log`.
-- `--check` validates config, paths, and runtime without side effects.
+- Redact before output or persistence; keep per-operation logs under
+  `<common-git-dir>/<state_dir>/logs/<name>/<operation_id>.log`.
+- `--check` validates config, names, paths, runtime, and CLI support without side effects;
+  accept a prospective worktree path. Its final JSON advertises `contract_version: 1`.
 - `--dry-run` prints planned actions without changing anything.
 - `--purge` is teardown-only: remove the paths in the config's `cleanup` list. Init exits
   `2` if it receives `--purge`.
@@ -352,6 +364,14 @@ Scripts must satisfy this contract:
   - Reject `..`, `.git`, and paths outside the storage root.
 - Do not start long-running services. Prepare them, and leave starting dev servers to
   the developer or a separate command.
+
+Implement the runtime contract's per-target lock, caller-held `--operation-id` lease,
+bounded waiting, short allocation lock, resource intents, and atomic operation records.
+The core updates init progress/results under the lock, preserving the summary's other
+fields. It must survive partial initialization without repeating resource creation.
+Teardown must reconcile recorded identities before releasing resources; a matching name
+alone does not prove ownership. `--check`/`--dry-run` must never acquire locks or write
+logs/state. Do not require a specific agent's host APIs for any of these mechanisms.
 
 Init responsibilities:
 
@@ -400,6 +420,7 @@ configuration block:
 
 ```yaml worktree-config
 schema: 2
+contract_version: 1
 config_file: docs/worktree.config.json
 storage:
   mode: local            # local | global
@@ -430,6 +451,10 @@ integration:
   pr_tool: manual        # gh | glab | manual
   pr_merge_method: merge # must be a merge commit
   auto_push: ask         # ask | true
+operations:
+  lock_wait_seconds: 60
+validation:
+  checks: []             # existing project commands; see the runtime contract
 # env:                   # uncomment when the project has env configuration
 #   file: .env.worktree
 #   managed_keys: []
@@ -445,6 +470,10 @@ Write the same values to the machine-readable config at the path chosen in Step 
 document block and the JSON file must be identical in meaning; if they differ, setup is
 not complete. The example above uses the default paths; substitute the paths the user
 chose in Steps 3 and 4.
+
+Include the runtime contract after this block. Check both representations against its
+rules, not just against each other. Reject unsupported branch templates, invalid name
+limits, malformed check records, and incompatible scripts before any provisioning.
 
 Add prose covering:
 
@@ -490,10 +519,11 @@ Create `AGENTS.md` if absent. Insert or replace exactly one block:
 ## Worktree workflow
 
 - Workflow doc: <doc path chosen in Step 3>
-- One requirement, one session, one worktree. Create it at the start and destroy it in
-  the same session.
+- One requirement, one session, one worktree. Retain it when the user asks; destroy it
+  only after the user authorizes cleanup, before creating another worktree in this session.
 - A session manages at most one worktree. If the current directory is a linked
-  worktree, keep working there and do not create a second one.
+  worktree, validate the user's chosen target and keep working there. Ask only when the
+  target or ownership is unclear; do not create a second one.
 - Land completed work with the `merge-git-worktree` skill. Do not merge directly from
   `create-git-worktree` or `destroy-git-worktree`.
 - Do not destroy a worktree you did not create unless the user names it and confirms the
@@ -529,12 +559,18 @@ The report must list:
 - the environment boundary: whether `env.file` exists and which keys are managed;
 - how the scripts consume `--copied-manifest` and which paths are read-only;
 - self-check results from `--check` and `--dry-run` on both scripts;
+- runtime-contract fixture results, including concurrency, partial failure, safe logs,
+  and supported schemas; list untested runtime/platform variants explicitly;
 - known assumptions and a short review checklist.
 
 Run the self-checks before asking. Do not claim the generated scripts are correct; say
 plainly that they are a reviewed baseline and that the project hooks are the user's to
 own. If a check fails, fix the script or report the failure; do not offer the commit while
 a self-check fails.
+
+Run the runtime contract's local fake-hook scenarios as well as syntax checks. They
+must exercise actual generated cores; a separate toy implementation is not evidence
+that these scripts work. Keep scratch fixtures and logs outside the published skill.
 
 Ask: "Review the report and the project hooks. Commit the setup artifacts?" If the user
 declines, leave the files uncommitted and report their paths.
@@ -593,6 +629,8 @@ Verify, in the primary worktree:
   `base_ref`, `include_file`, `state_dir`, `naming`, `integration`, and `cleanup`; the
   optional `env` block is present only when the project has env configuration.
 - The config file exists and matches the document block.
+- Both config views pass contract validation, `contract_version: 1` is advertised by
+  script checks, and the workflow doc includes the runtime contract and check policy.
 - `.worktreeinclude` exists.
 - The scripts exist with the core and project-hook logic, either as separate files or as
   clearly separated functions; their runner is installed, and `--check` passes for both.
@@ -654,8 +692,13 @@ commit, say so explicitly and list the uncommitted setup paths.
 - [ ] `--check` passes for both scripts; `--dry-run` was exercised.
 - [ ] The workflow doc contains the schema 2 YAML configuration block.
 - [ ] The machine-readable config exists and matches the document block.
+- [ ] Config and scripts satisfy runtime contract version 1, including naming, schema
+      compatibility, locks, operation records, diagnostics, and existing project checks.
+- [ ] Local fake-hook scenarios exercised the generated cores; untested platforms are
+      identified instead of claimed as verified.
 - [ ] `AGENTS.md` contains exactly one worktree block, including the landing and
   ownership rules.
 - [ ] The setup report was shown, and the user chose commit or no-commit.
 - [ ] Setup artifacts are committed, or the user declined the commit.
-- [ ] No worktree was created.
+- [ ] No task worktree was created in the target repository; test worktrees were isolated
+      in disposable fixtures.

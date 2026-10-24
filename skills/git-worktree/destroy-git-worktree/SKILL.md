@@ -49,6 +49,16 @@ effective script set: on Windows use `scripts.windows` when present; on Unix-lik
 use `scripts.unix` when present; otherwise use the top-level `scripts.runner`,
 `scripts.init`, and `scripts.teardown`. Do not guess.
 
+Read the workflow runtime contract for `contract_version: 1`, including operation locks,
+resource intents, and additive state/check fields. Reject unknown versions. Validate
+the config independently of document equality. Schema 1/legacy schema 2 remain readable;
+missing validation is unknown, not passed. Teardown of legacy resources still uses its
+existing script and ownership checks; do not invent support for new script flags.
+
+Every Git gate requires a successful command before interpreting output. Empty output
+from a failed status command is not clean. An ancestor check returns 0 for contained,
+1 for not contained, and any other exit for an error that stops the gate.
+
 For schema 1, derive `integration.branch` from the primary's current branch
 (`git -C <primary> rev-parse --abbrev-ref HEAD`), treat `integration.mode` as `direct`,
 and treat `cleanup` as empty. If the primary is in detached HEAD, ask the user which
@@ -95,7 +105,8 @@ For the candidate, show:
 - whether a state file exists, and its `requirement`, `created_at`, and `lifecycle` when
   present.
 
-Then ask: "Is this the worktree this session created?" If the user says no or is unsure,
+Reuse an explicit user confirmation of this path and branch after verifying current
+facts; otherwise ask: "Is this the worktree this session created?" If the user says no or is unsure,
 list the worktrees and ask them to choose by path and branch. A state file helps the user
 recognize the worktree; it does not prove ownership.
 
@@ -106,6 +117,19 @@ Done when one target worktree is chosen and the user has confirmed it.
 
 ## Step 2 — Preflight the target
 
+- Acquire `<common>/<state_dir>/locks/<name>.lock` atomically and retain it through
+  teardown, loss gates, purge, removal, and final state recording. Use a unique operation
+  ID with kind/target/UTC metadata; wait only up to `operations.lock_wait_seconds`
+  (default 60). Only an existing lock is contention; permissions/I/O fail immediately.
+  An incomplete lock is occupied. No atomic lock capability means stop. Never reclaim
+  by age/PID alone: inspect records/Git/process evidence, obtain a stale-lock decision,
+  and recheck the observed identity before removal. Release only your own ID on every
+  normal exit; abrupt termination may require recovery. This is not Git's worktree lock.
+- After acquisition reread summary, `operations/<name>/*.json`, and resource records.
+  Refuse teardown while a matching/unresolved landing or init operation is still active.
+  Resolve unfinished merge/rebase/cherry-pick/revert state before releasing resources;
+  a missing lock does not prove that an interrupted Git operation completed. A recorded
+  pending merge with no current Git operation still needs reconciliation by merge.
 - Target path is not the primary and is inside the storage root.
 - Target is registered by `git worktree list --porcelain`, or it is an unregistered
   orphan directory at the recorded path. For an orphan, confirm the path, the leaf name,
@@ -117,21 +141,34 @@ Done when one target worktree is chosen and the user has confirmed it.
 - Read the state file if present. Accept schema 1 or 2. Use the config's
   `integration.branch` for the gates; fall back to the state's `integration_branch` when
   the config is schema 1. Use state `base_commit` for the "commits since creation"
-  display. If the state is missing, reconstruct fields from Git: resolve
-  `integration.branch` in the primary, and resolve `base_ref` to a commit for the
-  "commits since creation" display. Record the reconstructed values in memory.
+  display. If the original base is missing, report that comparison as unavailable;
+  today's `base_ref` is not evidence of the original base. Reconstruct only observed
+  path/branch/integration facts, never an invented creation point.
+- `created` with `init: pending|failed` is eligible for partial teardown after resource
+  reconciliation. `merged` is not proof of validation; report pending/failed/unknown
+  checks and preserve their operation records. They do not themselves authorize a
+  force delete or establish that the current source is contained. A retained-worktree
+  instruction remains effective until the user authorizes this destruction.
 - Read `copied_files` and `cleanup` when present. Also read
   `<common>/<state_dir>/<name>.copied.json` when it exists and union its `files` with
   `copied_files`. If the manifest exists but cannot be parsed, stop and report; do not
   guess which files are read-only. Copied files must never be deleted by purge; cleanup
   paths are the only ignored paths `--purge` may remove.
 - Check `locked` and the lock reason in `git worktree list --porcelain`. If locked, show
-  the reason and ask before running `git worktree unlock <path>`. A lock may mean another
-  session is active; do not unlock silently.
+  the reason and obtain authorization before running `git worktree unlock <path>`.
+  Reuse an existing confirmation only for the same target and unchanged reason. A lock
+  may mean another session is active; do not unlock silently.
 
 Done when the target is safe to operate on and the user has confirmed the target.
 
 ## Step 3 — Run teardown
+
+First run teardown `--check --json` with the target arguments. Version 1 setups require
+`contract_version: 1`; fail before resource changes on incompatibility. Legacy checks may
+omit that field; omit `--operation-id` for those scripts and retain the outer lock. Then
+record teardown intent before stopping processes or invoking teardown. An intent-write
+failure stops mutation. A version 1 core verifies the caller-held lock and leaves its
+release to this workflow.
 
 Before teardown, resolve listeners on the ports allocated to this worktree (state
 `resources`, the port registry, or the script's own record). For each listener:
@@ -151,10 +188,12 @@ teardown script with explicit arguments:
 <runner> <primary>/<scripts.dir>/<teardown> \
   --repo <primary> --worktree <target> --name <name> \
   --config <primary>/<config_file> \
-  --copied-manifest <common>/<state_dir>/<name>.copied.json --json
+  --copied-manifest <common>/<state_dir>/<name>.copied.json \
+  --operation-id <operation_id> --json
 ```
 
-- Capture stdout and stderr; keep the log path.
+- Keep redacted output/logs per operation, including partial resource results. Never
+  dump raw secret-bearing logs.
 - If `config_file` is absent (schema 1), omit `--config`; otherwise pass it explicitly.
 - If the copied manifest is absent, omit `--copied-manifest`; otherwise pass it explicitly.
 - Use a generous timeout for stopping services and dropping resources.
@@ -173,7 +212,7 @@ Done when teardown exits 0 with `"ok": true`.
 Do not remove the worktree. Return to the primary worktree, keep the worktree, keep the
 branch, and report:
 
-- exit code and last 20 log lines,
+- stage, operation, exit code, and up to 20 safe log lines,
 - which resource failed (database, container, port, process, permission),
 - the exact command to retry.
 
@@ -192,6 +231,12 @@ Offer three choices:
 
 If the user chooses force remove or leave, end with the return banner but state clearly
 that cleanup did not complete. Never claim the environment is clean.
+
+Persist the partial outcome before releasing only your target operation lock. Keep the
+summary, copied manifest, resource identities, and failed operation logs for recovery.
+An unresolved resource identity cannot be inferred from a matching name. Retry only
+after a changed condition or a classified transient failure (at most two automatic
+retries); reconcile possible side effects first. Lock waiting has its own total budget.
 
 Done when the user chooses retry, force remove, or leave.
 
@@ -237,16 +282,20 @@ purge path; teardown removes only its managed keys, so unmanaged keys survive.
 
 **Unpushed commits**
 
-First check whether the branch has an upstream:
+First query the existing branch's upstream from the primary (also works for an orphan):
 
 ```text
-git -C <target> rev-parse --abbrev-ref --symbolic-full-name @{u}
+git -C <primary> for-each-ref --format="%(upstream:short)" refs/heads/<branch>
 ```
 
-If it does, compare with `git -C <target> log --oneline @{u}..HEAD`. If it does not,
-compare with `git -C <target> log --oneline <base_commit>..HEAD` and say the commits are
-not on an upstream. Warn that deleting the branch would lose them. Ask whether to keep
-the branch, push first, or acknowledge the loss.
+After successful ref validation/query, an empty upstream means none is configured;
+an execution error is not that result. With an upstream, compare using
+`git -C <primary> log --oneline <upstream>..<branch>`. Without one, use the recorded
+`<base_commit>..<branch>` when known; otherwise use `<integration_branch>..<branch>`
+and label it as work outside integration, with original-base/upstream status unknown.
+Explain which commits are not proven on an upstream and whether integration contains
+them; do not claim deleting a contained branch deletes those commits. Ask whether to
+keep the branch, push first, or acknowledge any actual loss.
 
 **Unmerged branch**
 
@@ -257,22 +306,25 @@ from:
 git -C <primary> merge-base --is-ancestor <branch> <integration_branch>
 ```
 
-A non-zero exit means the branch has work not contained in the integration branch. Do not
+Exit 1 means the branch has work not contained in the integration branch; exit 0 means
+contained. Any other exit is a Git error: stop, never offer force deletion on that basis.
+For exit 1, do not
 delete it without an explicit decision: keep the branch, land it first with
 `merge-git-worktree`, or confirm a force delete after the SHA and recovery command are
 printed.
 
 For `integration.mode: pull-request`, the local integration branch may be behind. Fetch
-the configured remote first and test against `origin/<integration_branch>`. If the fetch
+the configured remote first and test against `<remote>/<integration_branch>`. If the fetch
 or the remote ref is unavailable, ask the user; do not guess.
 
-If the state says `lifecycle: pr_open`, check the PR state with the configured tool when
+If the state says `lifecycle: pr_pending` or `pr_open`, check the PR state with the configured tool when
 available. Without a tool, ask the user to confirm the PR is merged. A PR merged with a
 merge commit makes the branch an ancestor of the fetched integration branch. A PR merged
 with squash or rebase rewrites the commits, so the ancestor check fails; mark that case
 as "merged by PR, commits rewritten", require explicit confirmation, and use `-D` with
-the branch SHA printed. The same handling applies when `lifecycle: merged` but the
-ancestor check still fails.
+the branch SHA printed. If `lifecycle: merged` but the current branch is not contained,
+check for new source commits first; this is not evidence of a rewritten PR. Confirm the
+actual PR outcome before using the rewrite exception. A manual compare URL is not a PR.
 
 **Submodules**
 
@@ -291,6 +343,10 @@ locked worktree silently; a lock may mean another session is still active.
 If any gate fails, stop before removal. Report exactly what remains and what the user
 must resolve. The session stays in the primary, and the worktree stays on disk.
 
+Before purge/removal recheck target HEAD, status, registration, and Git lock identity;
+changed facts invalidate earlier loss confirmations. The operation lock serializes
+cooperating workflows, not arbitrary edits by the user or other Git tools.
+
 Done when every gate passes or the user chooses to leave.
 
 ## Step 6 — Purge and remove the worktree
@@ -304,7 +360,8 @@ idempotent:
 <runner> <primary>/<scripts.dir>/<teardown> \
   --repo <primary> --worktree <target> --name <name> \
   --config <primary>/<config_file> \
-  --copied-manifest <common>/<state_dir>/<name>.copied.json --json --purge
+  --copied-manifest <common>/<state_dir>/<name>.copied.json \
+  --operation-id <operation_id> --json --purge
 ```
 
 If purge fails, report which path is locked and which process may hold it. Do not delete
@@ -312,6 +369,7 @@ an unverified path by hand and do not run `git worktree remove` while a cleanup 
 locked; ask the user to stop the process and retry. For schema 1 or a teardown script
 that does not support `--purge`, omit `--purge`. Omit `--config` and
 `--copied-manifest` when those files do not exist; otherwise pass them explicitly.
+Omit `--operation-id` for legacy cores as in Step 3; retain the outer lock throughout.
 
 If the worktree is registered and locked, unlock it after the user confirmed:
 
@@ -402,6 +460,11 @@ Done when the branch is deleted or deliberately kept.
 
 ## Step 8 — Clear state
 
+- Write the exact removal/branch/teardown result to the operation record before the
+  summary, while holding the target operation lock. Use unique sibling temporary files
+  and atomic replacement. Preserve unknown fields and original landing/check evidence.
+  A result-write failure leaves prior records intact, attempts a separate recovery
+  record, reports known facts/paths, and prevents a claim of fully recorded cleanup.
 - Remove `<common>/<state_dir>/<name>.json` only when the worktree was removed and the
   branch was deleted.
 - Remove `<common>/<state_dir>/<name>.copied.json` only when the state file is removed.
@@ -414,11 +477,15 @@ Done when the branch is deleted or deliberately kept.
   cleanup or recover the branch.
 - Keep logs when cleanup failed, the branch was kept, or a PR was squash-merged; they are
   useful for diagnosis.
+- Keep operation records/logs when initialization or landing recovery is unresolved or
+  validation is pending, failed, or unknown, even if the summary can otherwise be removed.
+- Release only the target lock with your operation ID after recording. Do not delete
+  another operation's lock or remove a state directory while it contains live locks.
 - Remove empty state directories.
 - Run `git worktree prune` to clear stale administrative entries.
 
 Done when the state entry is either cleared or deliberately kept with a reason, and
-`git worktree prune` succeeds.
+`git worktree prune` succeeds, and the owned operation lock is released.
 
 ## Step 9 — Report
 
@@ -490,6 +557,9 @@ named.
 - [ ] The target was confirmed by the user, not inferred from cwd alone.
 - [ ] Target is not the primary and is inside the storage root.
 - [ ] Teardown ran; a failure produced a keep/retry/force decision, not a silent removal.
+- [ ] Operation/resource records were reconciled under the target lock; partial init,
+      pending PRs, failed checks, and moved source refs were not treated as success.
+- [ ] Git command errors stopped gates; results were recorded before owned lock release.
 - [ ] Worktree-owned listeners were stopped as process trees; unrelated listeners were
       left alone and reported.
 - [ ] Dirty, ignored-artifact, unpushed, unmerged, submodule, and lock gates were checked,

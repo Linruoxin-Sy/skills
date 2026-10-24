@@ -80,11 +80,26 @@ that silently half-works.
   `include_file`, `state_dir`, `naming`, `integration`, `cleanup`, and the optional `env`
   block.
 - The machine-readable config file named by `config_file`. It mirrors the document block;
-  setup writes both and the skills stop when they disagree.
+  setup writes both and the skills stop when they disagree. New setups add
+  `contract_version: 1`, `operations.lock_wait_seconds`, and `validation.checks`.
+  Both config views must independently pass the contract, including same-name/1–40
+  character naming; equality alone is insufficient. Missing contract version denotes
+  legacy input, not evidence that new script capabilities exist.
 - The script CLI
-  `<runner> <script> --repo … --worktree … --name … --json [--config …] [--copied-manifest …] [--purge] [--check] [--dry-run]`,
+  `<runner> <script> --repo … --worktree … --name … --json [--config …] [--copied-manifest …] [--operation-id …] [--purge] [--check] [--dry-run]`,
   its exit codes `0`–`6`, and the final-line JSON. The generated scripts separate a fixed
   core from project hooks.
+- Setup's [runtime contract](../../../skills/git-worktree/setup-git-worktree/references/runtime-contract.md)
+  is included in the target workflow document. Consumers read it there, not through a
+  sibling skill installation. New cores advertise `contract_version: 1` in a
+  side-effect-free `--check` that accepts prospective worktree paths. Legacy readers
+  preserve schema 1/2 and report unsupported script capabilities before provisioning.
+- Per-target operation locks cover init, landing, and teardown/removal. Shared allocation
+  locks are short; merge locks cover primary changes, post-merge checks, and recording.
+  Acquire target first, then shared lock; reread state under locks. Atomic acquisition,
+  bounded waits, error classification, caller-held operation IDs, identity-checked
+  release, and explicit stale-lock recovery are required. These are not Git worktree
+  locks or session ownership tokens.
 - The copied-files manifest `<common>/<state_dir>/<name>.copied.json`, schema 1, with
   `name` and `files`. Create writes it before init and passes it to both scripts; every
   listed path is read-only for init and teardown. Destroy removes it with the state file.
@@ -92,13 +107,30 @@ that silently half-works.
   `path`, `integration_branch`, `base_ref`, `base_commit`, `lifecycle`, `copied_files`,
   `resources`, and the optional `pids`/`owner_label`. Readers accept schema 1 and derive
   the missing integration and cleanup values.
+- Additive state fields `init`, `operation_id`, `landing`, `source_sha`,
+  `integration_before_sha`, and `validation` distinguish progress, Git landing, and check
+  evidence. `created` may have pending/failed init; `pr_pending` means only manual
+  instructions; `merged` does not imply passed checks. Missing legacy evidence remains
+  unknown/pending. Operation records at `operations/<name>/<id>.json` and safe logs at
+  `logs/<name>/<id>.log` survive failures. Write intent before mutation and results before
+  releasing locks, using unique temporary files and atomic replacement. Recovery checks
+  Git/resource identities; it never invents a base SHA or trusts status alone.
 - One requirement, one session, one worktree; branch name equals worktree leaf. Create
   locks the worktree; destroy confirms the target with the user and shows the lock reason
   before unlocking.
 - Landing preserves merge commits: `integration.merge: merge-commit`, `--no-ff`, no
   rebase, no squash. Direct mode merges locally; pull-request mode pushes and opens a PR.
   `merge` records `lifecycle: merged` or `pr_open`, `merged_commit`, `merged_at`, and
-  `pr_url`.
+  `pr_url` only for proven facts; manual instructions use `pr_pending` and null `pr_url`.
+  Direct landing pins the validated source, rechecks under locks, and verifies both exact
+  parents. PR landing records the actual PR merge, never an unrelated later remote HEAD.
+- `validation.checks` records only project-owned commands (`name`, `argv`, `cwd`,
+  `phases`, `required`). Evidence includes the checked SHA and safe logs; no checks means
+  `not_configured`. The group does not design application tests or operate CI. Git exit
+  errors must not be interpreted as clean status or an ordinary negative ancestor result.
+- Existing user choices and retention instructions are reused after current-fact checks;
+  uncertain ownership and new loss decisions still require confirmation. Retention does
+  not permit a second worktree in the same session or bypass destroy gates.
 - The closing banners: `create` prints `This session has switched to the worktree
   environment.`, `destroy` ends with `This session has switched back to the main
   worktree.` Both lines carry a marker to render them in the language the user is actually
@@ -117,6 +149,44 @@ survives while the managed key is added and removed. It lives in the repository'
 tree, not next to this guide, so it does not ship with the skills; run it manually against
 a target worktree.
 
+[`landing-fixtures.mjs`](../../../tests/git-worktree/landing-fixtures.mjs) prepares nine
+real Git scenarios and verifies their observable results. It deliberately contains no
+landing implementation: exercise each generated `*.request.txt` with the merge skill
+or the target repository's executor, then run its verifier. Scenarios include source
+drift, required-check failure, pending validation, interrupted conflicts, lost summary,
+later integration commits, PR merge identity, manual PR status, and Git errors.
+
+```text
+node tests/git-worktree/landing-fixtures.mjs prepare
+# Execute the requests in the returned disposable directory.
+node tests/git-worktree/landing-fixtures.mjs verify <fixture-directory>
+```
+
+[`generated-core-regression.mjs`](../../../tests/git-worktree/generated-core-regression.mjs)
+tests actual setup-generated scripts through their CLI. Generate a disposable local
+repository with fake resource hooks, then provide a JSON descriptor with `scratch: true`,
+absolute `repo`, `runner`, repo-relative `init`/`teardown`, and `unique_keys` naming the
+resource fields whose allocations must be unique. The fixture uses local `.worktrees`,
+an ignored/copied `.env`, and `.env.worktree` managing PORT. It needs four free fake
+resource slots and a clean `main` baseline. No live services or cloud resources.
+
+Optional `controls.delay` and `controls.partial_failure` map test-only env variables to
+values understood by the fake hook. The delay case needs a hook delay of at least two
+seconds and `operations.lock_wait_seconds <= 1`. The failure hook must fail with code 4
+after provisioning and emit only safe diagnostics; `secret_markers` lists fake secrets
+that must not appear in output/logs. These are fixture controls, not production CLI
+requirements. Omitted controls mean those cases are not exercised. Worktrees and JSON
+evidence are retained for inspection; the harness never installs a reference core.
+
+```text
+node tests/git-worktree/generated-core-regression.mjs <scratch-fixture.json>
+```
+
+During independent forward tests, give the evaluator the skill and realistic local
+setup requirements, not a corrected implementation. Verify copied manifests using
+the cross-skill object format, not a format invented by the generated core. Keep
+fault-injection results and platform limitations distinct from full end-to-end claims.
+
 ## Review checklist
 
 - Every step still ends with a `Done when …` sentence, and the completion criteria list
@@ -130,4 +200,8 @@ a target worktree.
 - Environment ownership still holds: only `env.file` is written, and only its managed
   keys.
 - The config, document block, and state schema still agree; schema 1 remains readable.
+- Config equality is not a substitute for contract validation. Recorded landing and
+  validation SHAs remain accurate after interruption or another branch lands.
+- New tests exercise observable Git/resource outcomes, not merely expected wording.
+  Do not call a fake reference implementation proof that generated scripts satisfy a skill.
 - The scope section still holds: worktrees, their local environment, and landing only.
