@@ -162,6 +162,31 @@ node tests/git-worktree/landing-fixtures.mjs prepare
 node tests/git-worktree/landing-fixtures.mjs verify <fixture-directory>
 ```
 
+[`generated-core-regression.mjs`](../../../tests/git-worktree/generated-core-regression.mjs)
+tests actual setup-generated scripts through their CLI. Generate a disposable local
+repository with fake resource hooks, then provide a JSON descriptor with `scratch: true`,
+absolute `repo`, `runner`, repo-relative `init`/`teardown`, and `unique_keys` naming the
+resource fields whose allocations must be unique. The fixture uses local `.worktrees`,
+an ignored/copied `.env`, and `.env.worktree` managing PORT. It needs four free fake
+resource slots and a clean `main` baseline. No live services or cloud resources.
+
+Optional `controls.delay` and `controls.partial_failure` map test-only env variables to
+values understood by the fake hook. The delay case needs a hook delay of at least two
+seconds and `operations.lock_wait_seconds <= 1`. The failure hook must fail with code 4
+after provisioning and emit only safe diagnostics; `secret_markers` lists fake secrets
+that must not appear in output/logs. These are fixture controls, not production CLI
+requirements. Omitted controls mean those cases are not exercised. Worktrees and JSON
+evidence are retained for inspection; the harness never installs a reference core.
+
+```text
+node tests/git-worktree/generated-core-regression.mjs <scratch-fixture.json>
+```
+
+During independent forward tests, give the evaluator the skill and realistic local
+setup requirements, not a corrected implementation. Verify copied manifests using
+the cross-skill object format, not a format invented by the generated core. Keep
+fault-injection results and platform limitations distinct from full end-to-end claims.
+
 ## Review checklist
 
 - Every step still ends with a `Done when …` sentence, and the completion criteria list
@@ -177,4 +202,6 @@ node tests/git-worktree/landing-fixtures.mjs verify <fixture-directory>
 - The config, document block, and state schema still agree; schema 1 remains readable.
 - Config equality is not a substitute for contract validation. Recorded landing and
   validation SHAs remain accurate after interruption or another branch lands.
+- New tests exercise observable Git/resource outcomes, not merely expected wording.
+  Do not call a fake reference implementation proof that generated scripts satisfy a skill.
 - The scope section still holds: worktrees, their local environment, and landing only.
