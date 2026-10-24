@@ -38,10 +38,12 @@
 - PR 模式：`gh`、`glab` 或手动步骤。没有 CLI 时回退为 compare URL。
 
 已有的 schema 1 设置仍可读取；重新运行 `setup-git-worktree` 可以把文档、配置、脚本和状态迁移到 schema 2，并补上合并设置。
+新设置在 schema 2 上增加 `contract_version: 1`。读取旧记录不会自动补出验证证据；缺失的检查结果仍为未知。运行协议写入目标仓库的工作流文档，其他 skill 无需访问兄弟 skill 的安装目录。脚本能力在创建资源前检查；不兼容的旧脚本须先通过 setup 修正。
 
 ## 设计约定
 
 - **一个需求、一个会话、一个 worktree。** 一个会话最多创建一个 worktree，创建下一个之前必须先销毁当前 worktree。不依赖 agent 专属的 session id；用 Git worktree lock 和用户明确确认来识别目标。
+  核对当前事实后沿用用户已明确选择的目标；用户要求保留时保留，创建下一个之前仍须获得清理授权。
 - **branch 与 worktree 叶目录同名。** 使用同一个 canonical 名称，方便 `git worktree list`、branch 操作和清理互相对应。
 - **先有需求。** 用户说明具体需求后才创建 worktree；没有随机 scratch 名称。
 - **控制面与数据面分离。** `AGENTS.md`、工作流文档、配置、脚本和状态元数据放在主 worktree；linked worktree 只放正在修改的代码。
@@ -49,8 +51,13 @@
 - **复制的文件在 init 前记录。** 状态目录下的 manifest 列出所有 copied 路径；init 和 teardown 把这些路径视为只读，purge 不会删除它们。
 - **setup 只提交自己的文件。** 使用 `git commit --only`，不会把用户已 staged 的改动一起提交；也不会替用户提交业务代码。生成脚本是 review 过的基线，项目 hook 仍由用户拥有。
 - **单一机器可读配置。** 工作流文档的 YAML 块和 `worktree.config.json` 从同一份值生成；脚本读配置，两者不一致时 skill 停止。
+  两份配置还必须各自通过契约校验，包括同名和 1–40 字符名称限制；不支持分支模板。
 - **环境变量归项目所有。** 工作流只写 `env.file`（默认 `.env.worktree`），且只写它管理的 key；绝不写 `.env`、`.env.local` 或其他项目 env 文件。项目在自己的配置里加载 `env.file`。项目本来没有 env 配置时，不生成 env 文件。
 - **合并保留 merge commit。** direct 模式使用 `git merge --no-ff`；PR 模式要求平台使用 merge commit。拒绝 rebase 和 squash。
+- **操作互斥且可恢复。** 目标操作锁覆盖 init、merge 和 teardown/removal，共享分配锁只保护短时登记。先取得目标锁，再取得共享锁；等待受 `operations.lock_wait_seconds`（默认 60 秒）限制，只释放操作 ID 匹配的锁。这些锁与 Git worktree lock 不同。变更前保存意图，释放锁前保存结果；每次操作保留独立的脱敏日志，成功不会覆盖早期失败证据。
+- **合并绑定准确提交。** 验证固定 source SHA，锁内重新检查，并核对两个准确的父提交。`lifecycle: merged` 只记录 Git 合并事实，`validation` 单独记录 pending/passed/failed/not_configured 和验证 SHA。恢复时核对 Git 与资源身份，不盲目重放操作。
+- **检查仍归项目所有。** `validation.checks` 使用 `name`、`argv`、`cwd`、`phases`、`required` 记录已有命令；缺少检查时明确说明，skill 不建立测试政策或操作 CI。Git 执行错误不能当作干净状态或普通的未合并结果。
+- **准确记录 PR。** 人工操作指引使用 `pr_pending`，确认 PR 存在后才使用 `pr_open`。合并记录使用该 PR 的真实 merge SHA，不取后续集成分支 HEAD。验证失败或未知会保留给 destroy，不能绕过销毁安全检查。
 - **destroy 有安全检查。** cleanup 成功不等于可以删除；未提交文件、ignored 产物、未推送提交、未合并 branch、dirty submodule 和 lock 都会先检查。`git worktree remove` 失败后走经过验证的 orphan 流程，而不是无守卫地删除目录。只有命令行包含该 worktree 路径的监听进程才会按进程树停止；无关进程只报告，不杀。
 - **共享与隔离资源。** 邮件 API key 等无状态外部服务可以共享；数据库、端口、容器、Redis 命名空间和对象存储前缀按 worktree 隔离。
 
@@ -87,3 +94,4 @@ npx skills use https://github.com/Linruoxin-Sy/skills/tree/main/skills/git-workt
 ## 范围说明
 
 skill 运行时会生成项目专属的脚本、文档、配置和状态；这些内容属于目标仓库，不属于本仓库。
+这一组只管理 worktree 的本地隔离环境和分支合入；云资源创建、部署、CI/review 政策和应用测试架构不在范围内。
