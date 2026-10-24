@@ -149,6 +149,19 @@ survives while the managed key is added and removed. It lives in the repository'
 tree, not next to this guide, so it does not ship with the skills; run it manually against
 a target worktree.
 
+[`landing-fixtures.mjs`](../../../tests/git-worktree/landing-fixtures.mjs) prepares nine
+real Git scenarios and verifies their observable results. It deliberately contains no
+landing implementation: exercise each generated `*.request.txt` with the merge skill
+or the target repository's executor, then run its verifier. Scenarios include source
+drift, required-check failure, pending validation, interrupted conflicts, lost summary,
+later integration commits, PR merge identity, manual PR status, and Git errors.
+
+```text
+node tests/git-worktree/landing-fixtures.mjs prepare
+# Execute the requests in the returned disposable directory.
+node tests/git-worktree/landing-fixtures.mjs verify <fixture-directory>
+```
+
 ## Review checklist
 
 - Every step still ends with a `Done when …` sentence, and the completion criteria list
